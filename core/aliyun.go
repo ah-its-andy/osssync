@@ -2,13 +2,13 @@ package core
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
+	"osssync/common/config"
 	"osssync/common/tracing"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -95,6 +95,10 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 	return fileInfo, nil
 }
 
+func (fileInfo *AliOSSFileInfo) Close() error {
+	return nil
+}
+
 func (fileInfo *AliOSSFileInfo) Name() string {
 	lastIndexOf := strings.LastIndex(fileInfo.objectName, "/")
 	if lastIndexOf == -1 {
@@ -142,8 +146,19 @@ func (fileInfo *AliOSSFileInfo) putLittleFile(src FileInfo, options ...oss.Optio
 	if err != nil {
 		return tracing.Error(err)
 	}
-	buffer, _ := ioutil.ReadAll(reader)
-	err = fileInfo.bucket.PutObject(fileInfo.objectName, bytes.NewReader(buffer), options...)
+	defer src.Close()
+
+	cryptoFile, err := NewCryptoChunkedFile(reader.(*os.File), int(src.Size()), []byte(config.RequireString(Arg_Salt)))
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	cryptoBuffer, err := cryptoFile.ComputeHash()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	err = fileInfo.bucket.PutObject(fileInfo.objectName, bytes.NewReader(cryptoBuffer), options...)
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -151,8 +166,24 @@ func (fileInfo *AliOSSFileInfo) putLittleFile(src FileInfo, options ...oss.Optio
 }
 
 func (fileInfo *AliOSSFileInfo) putChunkFile(src FileInfo, chunkSizeMb int64, options ...oss.Option) error {
-	chunkNum := int(math.Ceil(float64(fileInfo.contentLength) / float64(chunkSizeMb*1024*1024)))
-	chunks, err := oss.SplitFileByPartNum(filepath.Join(src.Path(), src.Name()), chunkNum)
+	reader, err := src.OpenRead()
+	if err != nil {
+		return tracing.Error(err)
+	}
+	defer src.Close()
+
+	cryptoFile, err := NewCryptoChunkedFile(reader.(*os.File), int(chunkSizeMb*1024*1024), []byte(config.RequireString(Arg_Salt)))
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	cryptoSize, err := cryptoFile.Size()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	chunkNum := int(math.Ceil(float64(cryptoSize) / float64(chunkSizeMb*1024*1024)))
+	chunks, err := splitFileByPartNum(cryptoSize, chunkNum)
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -162,17 +193,14 @@ func (fileInfo *AliOSSFileInfo) putChunkFile(src FileInfo, chunkSizeMb int64, op
 		return tracing.Error(err)
 	}
 
-	reader, err := src.OpenRead()
-	if err != nil {
-		return tracing.Error(err)
-	}
+	go cryptoFile.ComputeHash()
 
 	// 步骤2：上传分片。
 	var parts []oss.UploadPart
 	for _, chunk := range chunks {
-		reader.(*os.File).Seek(chunk.Offset, os.SEEK_SET)
+		cryptoBuffer := <-cryptoFile.ChunkBuffered()
 		// 调用UploadPart方法上传每个分片。
-		part, err := fileInfo.bucket.UploadPart(imur, reader, chunk.Size, chunk.Number)
+		part, err := fileInfo.bucket.UploadPart(imur, bytes.NewBuffer(cryptoBuffer), chunk.Size, chunk.Number)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(-1)
@@ -213,4 +241,30 @@ func (fileInfo *AliOSSFileInfo) Remove() error {
 		return tracing.Error(err)
 	}
 	return nil
+}
+
+func splitFileByPartNum(size int64, chunkNum int) ([]oss.FileChunk, error) {
+	if chunkNum <= 0 || chunkNum > 10000 {
+		return nil, errors.New("chunkNum invalid")
+	}
+
+	if int64(chunkNum) > size {
+		return nil, errors.New("oss: chunkNum invalid")
+	}
+
+	var chunks []oss.FileChunk
+	var chunk = oss.FileChunk{}
+	var chunkN = (int64)(chunkNum)
+	for i := int64(0); i < chunkN; i++ {
+		chunk.Number = int(i + 1)
+		chunk.Offset = i * (size / chunkN)
+		if i == chunkN-1 {
+			chunk.Size = size/chunkN + size%chunkN
+		} else {
+			chunk.Size = size / chunkN
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks, nil
 }

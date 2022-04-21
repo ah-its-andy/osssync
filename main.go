@@ -18,6 +18,8 @@ func main() {
 	flag.StringVar(&args.RemoteDir, "remote", "", "remote directory, default as root")
 	flag.BoolVar(&args.IndexOnly, "indexOnly", false, "only index files")
 	flag.BoolVar(&args.FullIndex, "fullIndex", false, "full index")
+	flag.StringVar(&args.Salt, "salt", "", "salt")
+	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
 	flag.Parse()
 
 	if args.SourcePath == "" {
@@ -65,6 +67,8 @@ func main() {
 	config.AttachValue(core.Arg_IndexOnly, args.IndexOnly)
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_RemoteDir, args.RemoteDir)
+	config.AttachValue(core.Arg_Salt, args.Salt)
+	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
 
 	err := app.Startup()
 	if err != nil {
@@ -88,4 +92,6 @@ type Args struct {
 	IndexOnly       bool
 	FullIndex       bool
 	RemoteDir       string
+	Salt            string
+	ChunkSizeMb     int64
 }

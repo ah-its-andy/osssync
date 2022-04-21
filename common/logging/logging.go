@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"code.zfy.link/zfy-backend/ecosystem/nullable"
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"github.com/sirupsen/logrus"
 )
@@ -108,9 +106,7 @@ func ConvertToStr(v interface{}) string {
 		return strconv.FormatBool(v.(bool))
 	case time.Time:
 		return v.(time.Time).Format("2006-01-02 15:04:05")
-	case sql.NullString:
-		nv := v.(sql.NullString)
-		return nullable.GetString(nv, "")
+
 	case sql.NullBool:
 		nv := v.(sql.NullBool)
 		if nv.Valid {

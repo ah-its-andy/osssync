@@ -9,11 +9,13 @@ import (
 	"osssync/core"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 )
 
 var ErrIndexedAlready error = fmt.Errorf("indexed already")
 var ErrObjectExists error = fmt.Errorf("object exists")
+var ErrSyncedAlready error = fmt.Errorf("synced already")
 
 func IndexFile(f core.FileInfo, fullIndex bool) error {
 	crc32, err := f.CRC32()
@@ -69,10 +71,21 @@ func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 	}
 	crc32Str := strconv.FormatInt(int64(crc32), 10)
 
-	// _, err = nosqlite.Get[ObjectIndexModel](crc32Str)
-	// if err != nil {
-	// 	return tracing.Error(err)
-	// }
+	indexedModel, err := nosqlite.Get[ObjectIndexModel](crc32Str)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	synces := make([]string, 0)
+	if indexedModel.Synced != "" {
+		synces = strings.Split(indexedModel.Synced, ",")
+	}
+
+	for _, s := range synces {
+		if s == string(targetType) {
+			return ErrSyncedAlready
+		}
+	}
 
 	targetFileInfo, err := core.GetFile(targetType, filepath.Join(src.Path(), src.Name()))
 	if err != nil {
@@ -101,6 +114,13 @@ func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 
 	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = crc32Str
 	err = targetFileInfo.Copy(src)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	synces = append(synces, string(targetType))
+	indexedModel.Synced = strings.Join(synces, ",")
+	err = nosqlite.Set(indexedModel.Name, indexedModel)
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -161,7 +181,9 @@ func SyncDir(path string, targetType core.FileType, fullIndex bool) error {
 			defer wg.Done()
 			err := Sync(srcFileInfo, targetType, fullIndex)
 			if err != nil {
-				logging.Error(err, nil)
+				if !tracing.IsError(err, ErrObjectExists) {
+					logging.Error(err, nil)
+				}
 			} else {
 				logging.Info("File has been synced", map[string]interface{}{
 					"path": srcFileInfo.Path(),

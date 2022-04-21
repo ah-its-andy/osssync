@@ -27,4 +27,6 @@ const (
 	Arg_IndexOnly       = "index_only"
 	Arg_FullIndex       = "full_index"
 	Arg_RemoteDir       = "remote_dir"
+	Arg_Salt            = "salt"
+	Arg_ChunkSizeMb     = "chunk_size_mb"
 )

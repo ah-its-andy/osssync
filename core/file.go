@@ -26,6 +26,7 @@ type FileInfo interface {
 	Exists() (bool, error)
 	Properties() map[PropertyName]string
 	Remove() error
+	Close() error
 }
 
 type PhysicalFileInfo struct {
@@ -68,6 +69,13 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	}
 
 	return fileInfo, nil
+}
+
+func (fileInfo *PhysicalFileInfo) Close() error {
+	if fileInfo.file != nil {
+		return fileInfo.file.Close()
+	}
+	return nil
 }
 
 func (fileInfo *PhysicalFileInfo) Name() string {
