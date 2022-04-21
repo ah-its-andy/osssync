@@ -26,4 +26,5 @@ const (
 	Arg_CredentialsFile = "credentials_file"
 	Arg_IndexOnly       = "index_only"
 	Arg_FullIndex       = "full_index"
+	Arg_RemoteDir       = "remote_dir"
 )

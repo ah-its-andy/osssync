@@ -1,26 +1,36 @@
 package core
 
 import (
+	"bytes"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"math"
+	"os"
 	"osssync/common/tracing"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 )
 
-type AliOSSConfig struct {
-	EndPoint        string
-	AccessKeyId     string
-	AccessKeySecret string
+type AliOSSCfgWrapper struct {
+	Config AliOSSConfig `yaml:"alioss"`
+}
 
-	UseCname      bool
-	Timeout       int32
-	SecurityToken string
-	EnableMD5     bool
-	EnableCRC     bool
-	Proxy         string
-	AuthProxy     string
+type AliOSSConfig struct {
+	EndPoint        string `yaml:"endpoint"`
+	AccessKeyId     string `yaml:"access_key_id"`
+	AccessKeySecret string `yaml:"access_key_secret"`
+
+	UseCname      bool   `yaml:"use_cname"`
+	Timeout       int32  `yaml:"timeout"`
+	SecurityToken string `yaml:"security_token"`
+	EnableMD5     bool   `yaml:"enable_md5"`
+	EnableCRC     bool   `yaml:"enable_crc"`
+	Proxy         string `yaml:"proxy"`
+	AuthProxy     string `yaml:"auth_proxy"`
 }
 
 type AliOSSFileInfo struct {
@@ -43,6 +53,9 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 	bucket, err := client.Bucket(bucketName)
 	if err != nil {
 		return nil, tracing.Error(err)
+	}
+	if strings.HasPrefix(objectName, "/") {
+		objectName = objectName[1:]
 	}
 	exists, err := bucket.IsObjectExist(objectName)
 	if err != nil {
@@ -112,13 +125,70 @@ func (fileInfo *AliOSSFileInfo) OpenRead() (io.Reader, error) {
 	}
 	return reader, nil
 }
-func (fileInfo *AliOSSFileInfo) WriteAll(reader io.Reader) error {
-	err := fileInfo.bucket.PutObject(fileInfo.objectName, reader)
+func (fileInfo *AliOSSFileInfo) Copy(src FileInfo) error {
+	options := []oss.Option{}
+	for k, v := range fileInfo.metaData {
+		options = append(options, oss.Meta(string(k), v))
+	}
+	if src.Size() > 5*1024*1024 {
+		return fileInfo.putChunkFile(src, 5, options...)
+	} else {
+		return fileInfo.putLittleFile(src, options...)
+	}
+}
+
+func (fileInfo *AliOSSFileInfo) putLittleFile(src FileInfo, options ...oss.Option) error {
+	reader, err := src.OpenRead()
+	if err != nil {
+		return tracing.Error(err)
+	}
+	buffer, _ := ioutil.ReadAll(reader)
+	err = fileInfo.bucket.PutObject(fileInfo.objectName, bytes.NewReader(buffer), options...)
 	if err != nil {
 		return tracing.Error(err)
 	}
 	return nil
 }
+
+func (fileInfo *AliOSSFileInfo) putChunkFile(src FileInfo, chunkSizeMb int64, options ...oss.Option) error {
+	chunkNum := int(math.Ceil(float64(fileInfo.contentLength) / float64(chunkSizeMb*1024*1024)))
+	chunks, err := oss.SplitFileByPartNum(filepath.Join(src.Path(), src.Name()), chunkNum)
+	if err != nil {
+		return tracing.Error(err)
+	}
+	// 步骤1：初始化一个分片上传事件，并指定存储类型为标准存储。
+	imur, err := fileInfo.bucket.InitiateMultipartUpload(fileInfo.objectName, options...)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	reader, err := src.OpenRead()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	// 步骤2：上传分片。
+	var parts []oss.UploadPart
+	for _, chunk := range chunks {
+		reader.(*os.File).Seek(chunk.Offset, os.SEEK_SET)
+		// 调用UploadPart方法上传每个分片。
+		part, err := fileInfo.bucket.UploadPart(imur, reader, chunk.Size, chunk.Number)
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(-1)
+		}
+		parts = append(parts, part)
+	}
+
+	// 步骤3：完成分片上传，指定文件读写权限为公共读。
+	_, err = fileInfo.bucket.CompleteMultipartUpload(imur, parts)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	return nil
+}
+
 func (fileInfo *AliOSSFileInfo) MD5() (string, error) {
 	if md5, ok := fileInfo.metaData[PropertyName_ContentMD5]; ok {
 		return md5, nil

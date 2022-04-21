@@ -15,6 +15,7 @@ func main() {
 	flag.StringVar(&args.Provider, "provider", "", "object storage service provider. e.g. alioss")
 	flag.StringVar(&args.BucketName, "bucket", "", "bucket name")
 	flag.StringVar(&args.CredentialsFile, "credentials", "", "credentials file")
+	flag.StringVar(&args.RemoteDir, "remote", "", "remote directory, default as root")
 	flag.BoolVar(&args.IndexOnly, "indexOnly", false, "only index files")
 	flag.BoolVar(&args.FullIndex, "fullIndex", false, "full index")
 	flag.Parse()
@@ -63,6 +64,7 @@ func main() {
 	config.AttachValue(core.Arg_BucketName, args.BucketName)
 	config.AttachValue(core.Arg_IndexOnly, args.IndexOnly)
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
+	config.AttachValue(core.Arg_RemoteDir, args.RemoteDir)
 
 	err := app.Startup()
 	if err != nil {
@@ -85,4 +87,5 @@ type Args struct {
 	CredentialsFile string
 	IndexOnly       bool
 	FullIndex       bool
+	RemoteDir       string
 }

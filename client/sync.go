@@ -69,12 +69,12 @@ func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 	}
 	crc32Str := strconv.FormatInt(int64(crc32), 10)
 
-	objectIndex, err := nosqlite.Get[ObjectIndexModel](crc32Str)
-	if err != nil {
-		return tracing.Error(err)
-	}
+	// _, err = nosqlite.Get[ObjectIndexModel](crc32Str)
+	// if err != nil {
+	// 	return tracing.Error(err)
+	// }
 
-	targetFileInfo, err := core.GetFile(targetType, filepath.Join(objectIndex.FilePath, objectIndex.FileName))
+	targetFileInfo, err := core.GetFile(targetType, filepath.Join(src.Path(), src.Name()))
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -99,12 +99,8 @@ func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 		}
 	}
 
-	srcReader, err := src.OpenRead()
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	err = targetFileInfo.WriteAll(srcReader)
+	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = crc32Str
+	err = targetFileInfo.Copy(src)
 	if err != nil {
 		return tracing.Error(err)
 	}
