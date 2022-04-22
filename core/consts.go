@@ -21,12 +21,10 @@ const (
 const (
 	Arg_Config          = "config"
 	Arg_SourcePath      = "source_path"
-	Arg_Provider        = "provider"
-	Arg_BucketName      = "bucket_name"
+	Arg_DestPath        = "dest_path"
 	Arg_CredentialsFile = "credentials_file"
 	Arg_Operation       = "operation"
 	Arg_FullIndex       = "full_index"
-	Arg_RemoteDir       = "remote_dir"
 	Arg_Salt            = "salt"
 	Arg_ChunkSizeMb     = "chunk_size_mb"
 )

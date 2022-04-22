@@ -82,13 +82,15 @@ func (stream *PhysicalFileStream) ChunkWrites(fileSize int64, chunkSize int64) (
 	for i := int64(0); i < chunkN; i++ {
 		chunk := &PhysicalChunkedFileWriter{
 			number: i + 1,
-			offset: i * (fileSize / chunkN),
+			offset: 0,
+			fw:     stream,
 		}
 		if i == chunkN-1 {
-			chunk.chunkSize = fileSize/chunkN + fileSize%chunkN
+			chunk.chunkSize = fileSize - i*chunkSize
 		} else {
-			chunk.chunkSize = fileSize / chunkN
+			chunk.chunkSize = chunkSize
 		}
+		chunk.buffer = make([]byte, chunk.chunkSize)
 		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
@@ -119,7 +121,9 @@ func (writer *PhysicalChunkedFileWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	if len(p) > int(writer.chunkSize)-int(writer.offset) {
+	size := len(p)
+	bufferSize := int(writer.chunkSize) - int(writer.offset)
+	if size > bufferSize {
 		return 0, ErrIndexOutOfRange
 	}
 

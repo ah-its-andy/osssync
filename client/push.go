@@ -19,47 +19,7 @@ var ErrIndexedAlready error = fmt.Errorf("indexed already")
 var ErrObjectExists error = fmt.Errorf("object exists")
 var ErrSyncedAlready error = fmt.Errorf("synced already")
 
-func IndexFile(f core.FileInfo, fullIndex bool) error {
-	crc32, err := f.CRC32()
-	if err != nil {
-		return tracing.Error(err)
-	}
-	crc32Str := strconv.FormatInt(int64(crc32), 10)
-
-	objectIndex, err := nosqlite.Get[ObjectIndexModel](crc32Str)
-	if err != nil && !tracing.IsError(err, nosqlite.ErrRecordNotFound) {
-		return tracing.Error(err)
-	}
-
-	if crc32Str == objectIndex.CRC32 {
-		if fullIndex {
-			nosqlite.Remove[ObjectIndexModel](objectIndex.Name)
-		} else {
-			return ErrIndexedAlready
-		}
-	}
-
-	md5, err := f.MD5()
-	if err != nil {
-		return tracing.Error(err)
-	}
-	objectIndex = ObjectIndexModel{
-		Name:     fmt.Sprintf("%d", crc32),
-		FilePath: f.Path(),
-		FileName: f.Name(),
-		CRC32:    crc32Str,
-		MD5:      md5,
-		Synced:   "",
-		Size:     f.Size(),
-	}
-	err = nosqlite.Set(objectIndex.Name, objectIndex)
-	if err != nil {
-		return tracing.Error(err)
-	}
-	return nil
-}
-
-func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
+func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 	err := IndexFile(src, fullIndex)
 	if err != nil {
 		if !tracing.IsError(err, ErrIndexedAlready) {
@@ -83,13 +43,14 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 		synces = strings.Split(indexedModel.Synced, ",")
 	}
 
+	destFileType := core.ResolveUriType(destPath)
 	for _, s := range synces {
-		if s == string(targetType) {
+		if s == string(destFileType) {
 			return ErrSyncedAlready
 		}
 	}
 
-	targetFileInfo, err := core.GetFile(targetType, filepath.Join(src.Path(), src.Name()))
+	targetFileInfo, err := core.GetFile(filepath.Join(destPath, src.Name()))
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -214,7 +175,7 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 		}
 	}
 
-	synces = append(synces, string(targetType))
+	synces = append(synces, string(destFileType))
 	indexedModel.Synced = strings.Join(synces, ",")
 	err = nosqlite.Set(indexedModel.Name, indexedModel)
 	if err != nil {
@@ -224,7 +185,7 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 	return nil
 }
 
-func IndexDir(path string, fullIndex bool) error {
+func PushDir(path string, destPath string, fullIndex bool) error {
 	rds, err := os.ReadDir(path)
 	if err != nil {
 		return tracing.Error(err)
@@ -232,50 +193,16 @@ func IndexDir(path string, fullIndex bool) error {
 	var wg sync.WaitGroup
 	for _, rd := range rds {
 		if rd.IsDir() {
-			return IndexDir(filepath.Join(path, rd.Name()), fullIndex)
+			return PushDir(filepath.Join(path, rd.Name()), destPath, fullIndex)
 		}
-		srcFileInfo, err := core.GetFile(core.FileType_Physical, filepath.Join(path, rd.Name()))
+		srcFileInfo, err := core.GetFile(filepath.Join(path, rd.Name()))
 		if err != nil {
 			return tracing.Error(err)
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := IndexFile(srcFileInfo, fullIndex)
-			if err != nil {
-				if !tracing.IsError(err, ErrIndexedAlready) {
-					logging.Error(err, nil)
-				}
-			} else {
-				logging.Info("File has been indexed", map[string]interface{}{
-					"path": srcFileInfo.Path(),
-					"file": srcFileInfo.Name(),
-				})
-			}
-		}()
-	}
-	wg.Wait()
-	return nil
-}
-
-func PushDir(path string, targetType core.FileType, fullIndex bool) error {
-	rds, err := os.ReadDir(path)
-	if err != nil {
-		return tracing.Error(err)
-	}
-	var wg sync.WaitGroup
-	for _, rd := range rds {
-		if rd.IsDir() {
-			return PushDir(filepath.Join(path, rd.Name()), targetType, fullIndex)
-		}
-		srcFileInfo, err := core.GetFile(core.FileType_Physical, filepath.Join(path, rd.Name()))
-		if err != nil {
-			return tracing.Error(err)
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := PushFile(srcFileInfo, targetType, fullIndex)
+			err := PushFile(srcFileInfo, destPath, fullIndex)
 			if err != nil {
 				if tracing.IsError(ErrSyncedAlready, err) {
 					logging.Debug(fmt.Sprintf("File %s has been synced already", srcFileInfo.Name()), nil)

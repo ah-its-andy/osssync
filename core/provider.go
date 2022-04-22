@@ -6,7 +6,8 @@ import (
 	"osssync/common/tracing"
 )
 
-func GetFile(fileType FileType, filePath string) (FileInfo, error) {
+func GetFile(filePath string) (FileInfo, error) {
+	fileType := ResolveUriType(filePath)
 	switch fileType {
 	case FileType_Physical:
 		return OpenPhysicalFile(filePath)
@@ -18,12 +19,18 @@ func GetFile(fileType FileType, filePath string) (FileInfo, error) {
 		if err != nil {
 			return nil, tracing.Error(err)
 		}
-		bucketName := config.RequireString(Arg_BucketName)
-
+		bucketName, err := ResolveBucketName(filePath)
+		if err != nil {
+			return nil, tracing.Error(err)
+		}
+		objectName, err := ResolveRelativePath(filePath)
+		if err != nil {
+			return nil, tracing.Error(err)
+		}
 		sourceRoot := config.RequireString(Arg_SourcePath)
 		relativePath := filePath[len(sourceRoot)+1:]
 
-		return OpenAliOSS(aliCfg.Config, bucketName, fmt.Sprintf("%s/%s", config.RequireString(Arg_RemoteDir), relativePath))
+		return OpenAliOSS(aliCfg.Config, bucketName, fmt.Sprintf("%s/%s", objectName, relativePath))
 
 	default:
 		return nil, fmt.Errorf("unknown file type: %s", fileType)

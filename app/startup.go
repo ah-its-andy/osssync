@@ -54,6 +54,7 @@ func Startup() error {
 
 func Run() error {
 	sourcePath := config.RequireString(core.Arg_SourcePath)
+	destPath := config.GetStringOrDefault(core.Arg_DestPath, "")
 	statInfo, err := os.Stat(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -61,6 +62,16 @@ func Run() error {
 		}
 		return tracing.Error(err)
 	}
+
+	_, err = os.Stat(destPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			os.MkdirAll(destPath, 0755)
+		} else {
+			return tracing.Error(err)
+		}
+	}
+
 	if statInfo.IsDir() {
 		operation := config.RequireString(core.Arg_Operation)
 		switch operation {
@@ -69,7 +80,7 @@ func Run() error {
 
 		case "push":
 			return client.PushDir(sourcePath,
-				core.FileType(config.RequireString(core.Arg_Provider)),
+				destPath,
 				config.RequireValue[bool](core.Arg_FullIndex))
 
 		case "pull":

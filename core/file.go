@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/md5"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -46,14 +47,23 @@ type PhysicalFileInfo struct {
 }
 
 func OpenPhysicalFile(filePath string) (FileInfo, error) {
-	fileInfo := &PhysicalFileInfo{}
+	fileInfo := &PhysicalFileInfo{isIdle: true}
 	statInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fileInfo.exists = false
-			return fileInfo, nil
+			fileInfo.exists = true
+			fd, err := os.Create(filePath)
+			if err != nil {
+				return nil, tracing.Error(err)
+			}
+			fd.Close()
+			statInfo, err = os.Stat(filePath)
+			if err != nil {
+				return nil, tracing.Error(err)
+			}
+		} else {
+			return nil, tracing.Error(err)
 		}
-		return nil, tracing.Error(err)
 	}
 	lastIndexOf := strings.LastIndex(filePath, "/")
 	if lastIndexOf == -1 {
@@ -63,7 +73,6 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	}
 	fileInfo.statInfo = statInfo
 	fileInfo.exists = true
-	fileInfo.isIdle = true
 
 	err = fileInfo.ComputeHashOnce()
 	if err != nil {
@@ -91,7 +100,14 @@ func (fileInfo *PhysicalFileInfo) Size() int64 {
 }
 
 func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
-	return fileInfo.exists, nil
+	_, err := os.Stat(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, tracing.Error(err)
+	}
+	return true, nil
 }
 
 func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
@@ -107,14 +123,26 @@ func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
 
 func (fileInfo *PhysicalFileInfo) open() error {
 	if fileInfo.isIdle {
-		file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
-		if err != nil {
-			return tracing.Error(err)
+		exists, _ := fileInfo.Exists()
+		if exists {
+			file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+			if err != nil {
+				return tracing.Error(err)
+			}
+			fileInfo.file = file
+		} else {
+			file, err := os.Create(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+			if err != nil {
+				return tracing.Error(err)
+			}
+			fileInfo.file = file
 		}
-		fileInfo.file = file
+
 		fileInfo.isIdle = false
+		return nil
+	} else {
+		return fmt.Errorf("file is buzy")
 	}
-	return nil
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
@@ -169,14 +197,22 @@ func (fileInfo *PhysicalFileInfo) CRC32() (uint32, error) {
 	return fileInfo.crc32, nil
 }
 func (fileInfo *PhysicalFileInfo) Properties() map[PropertyName]string {
-	return map[PropertyName]string{
-		PropertyName_ContentName:    fileInfo.statInfo.Name(),
-		PropertyName_ContentLength:  strconv.FormatInt(fileInfo.statInfo.Size(), 10),
+	properties := map[PropertyName]string{
 		PropertyName_ContentType:    "application/octet-stream",
 		PropertyName_ContentMD5:     fileInfo.md5Base58,
 		PropertyName_ContentCRC32:   strconv.FormatUint(uint64(fileInfo.crc32), 10),
-		PropertyName_ContentModTime: fileInfo.statInfo.ModTime().Format(time.RFC3339),
+		PropertyName_ContentName:    "",
+		PropertyName_ContentModTime: "",
+		PropertyName_ContentLength:  "0",
 	}
+
+	if fileInfo.statInfo != nil {
+		properties[PropertyName_ContentLength] = strconv.FormatInt(fileInfo.statInfo.Size(), 10)
+		properties[PropertyName_ContentName] = fileInfo.statInfo.Name()
+		properties[PropertyName_ContentModTime] = fileInfo.statInfo.ModTime().Format(time.RFC3339)
+	}
+
+	return properties
 }
 func (fileInfo *PhysicalFileInfo) Remove() error {
 	return os.Remove(filepath.Join(fileInfo.Path(), fileInfo.Name()))
