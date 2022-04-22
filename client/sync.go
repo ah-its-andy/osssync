@@ -2,7 +2,9 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"osssync/common/config"
 	"osssync/common/dataAccess/nosqlite"
 	"osssync/common/logging"
 	"osssync/common/tracing"
@@ -57,7 +59,7 @@ func IndexFile(f core.FileInfo, fullIndex bool) error {
 	return nil
 }
 
-func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
+func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 	err := IndexFile(src, fullIndex)
 	if err != nil {
 		if !tracing.IsError(err, ErrIndexedAlready) {
@@ -113,9 +115,78 @@ func Sync(src core.FileInfo, targetType core.FileType, fullIndex bool) error {
 	}
 
 	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = crc32Str
-	err = targetFileInfo.Copy(src)
+
+	fs, err := targetFileInfo.Stream()
 	if err != nil {
 		return tracing.Error(err)
+	}
+	defer fs.Close()
+
+	srcFs, err := src.Stream()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	fileSize := src.Size()
+	chunkSizeMb := int64(config.RequireValue[float64](core.Arg_ChunkSizeMb))
+	chunkSize := chunkSizeMb * 1024 * 1024
+	if chunkSize > fileSize {
+		cryptoWriter, err := core.NewCryptoFileWriter(fs, core.CryptoOptions{
+			Salt: []byte(config.RequireString(core.Arg_Salt)),
+		})
+		if err != nil {
+			return tracing.Error(err)
+		}
+		defer cryptoWriter.Close()
+		_, err = io.Copy(cryptoWriter, srcFs)
+		if err != nil {
+			return tracing.Error(err)
+		}
+		err = cryptoWriter.Flush()
+		if err != nil {
+			return tracing.Error(err)
+		}
+	} else {
+		// chunk writes
+		chunks, err := core.GenerateCryptoChunkWrites(fs, chunkSize, core.CryptoOptions{
+			Salt: []byte(config.RequireString(core.Arg_Salt)),
+		})
+		if err != nil {
+			return tracing.Error(err)
+		}
+		_, err = srcFs.Seek(0, io.SeekStart)
+		if err != nil {
+			return tracing.Error(err)
+		}
+		for _, chunk := range chunks {
+			tmp := make([]byte, chunkSize)
+			_, err := srcFs.Read(tmp)
+
+			if err != nil && err != io.EOF {
+				return tracing.Error(err)
+			}
+
+			if err != io.EOF {
+				_, err = srcFs.Seek(0, io.SeekCurrent)
+				if err != nil {
+					return tracing.Error(err)
+				}
+			}
+
+			_, err = chunk.Write(tmp)
+			if err != nil {
+				return tracing.Error(err)
+			}
+
+			err = chunk.Flush()
+			if err != nil {
+				return tracing.Error(err)
+			}
+		}
+		err = fs.Flush()
+		if err != nil {
+			return tracing.Error(err)
+		}
 	}
 
 	synces = append(synces, string(targetType))
@@ -162,7 +233,7 @@ func IndexDir(path string, fullIndex bool) error {
 	return nil
 }
 
-func SyncDir(path string, targetType core.FileType, fullIndex bool) error {
+func PushDir(path string, targetType core.FileType, fullIndex bool) error {
 	rds, err := os.ReadDir(path)
 	if err != nil {
 		return tracing.Error(err)
@@ -170,7 +241,7 @@ func SyncDir(path string, targetType core.FileType, fullIndex bool) error {
 	var wg sync.WaitGroup
 	for _, rd := range rds {
 		if rd.IsDir() {
-			return SyncDir(filepath.Join(path, rd.Name()), targetType, fullIndex)
+			return PushDir(filepath.Join(path, rd.Name()), targetType, fullIndex)
 		}
 		srcFileInfo, err := core.GetFile(core.FileType_Physical, filepath.Join(path, rd.Name()))
 		if err != nil {
@@ -179,7 +250,7 @@ func SyncDir(path string, targetType core.FileType, fullIndex bool) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := Sync(srcFileInfo, targetType, fullIndex)
+			err := PushFile(srcFileInfo, targetType, fullIndex)
 			if err != nil {
 				if !tracing.IsError(err, ErrObjectExists) {
 					logging.Error(err, nil)

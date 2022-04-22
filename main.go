@@ -16,17 +16,18 @@ func main() {
 	flag.StringVar(&args.BucketName, "bucket", "", "bucket name")
 	flag.StringVar(&args.CredentialsFile, "credentials", "", "credentials file")
 	flag.StringVar(&args.RemoteDir, "remote", "", "remote directory, default as root")
-	flag.BoolVar(&args.IndexOnly, "indexOnly", false, "only index files")
+	//flag.BoolVar(&args.IndexOnly, "indexOnly", false, "only index files")
 	flag.BoolVar(&args.FullIndex, "fullIndex", false, "full index")
 	flag.StringVar(&args.Salt, "salt", "", "salt")
 	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
+	flag.StringVar(&args.Operation, "direction", "", "sync direction, [index, push, pull, sync]")
 	flag.Parse()
 
 	if args.SourcePath == "" {
 		panic("source path is required")
 	}
 
-	if !args.IndexOnly {
+	if args.Operation != "index" {
 		if args.Provider == "" {
 			panic("provider is required")
 		}
@@ -46,7 +47,7 @@ func main() {
 	}
 	config.AttachValue(core.Arg_SourcePath, absSourcePath)
 
-	if !args.IndexOnly {
+	if args.Operation != "index" {
 		absCredentialsFile := args.CredentialsFile
 		if !filepath.IsAbs(absCredentialsFile) {
 			absCredentialsFile, _ = filepath.Abs(args.CredentialsFile)
@@ -64,7 +65,7 @@ func main() {
 
 	config.AttachValue(core.Arg_Provider, args.Provider)
 	config.AttachValue(core.Arg_BucketName, args.BucketName)
-	config.AttachValue(core.Arg_IndexOnly, args.IndexOnly)
+	config.AttachValue(core.Arg_Operation, args.Operation)
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_RemoteDir, args.RemoteDir)
 	config.AttachValue(core.Arg_Salt, args.Salt)
@@ -89,9 +90,12 @@ type Args struct {
 	Provider        string
 	BucketName      string
 	CredentialsFile string
-	IndexOnly       bool
-	FullIndex       bool
-	RemoteDir       string
-	Salt            string
-	ChunkSizeMb     int64
+	// IndexOnly       bool
+	FullIndex   bool
+	RemoteDir   string
+	Salt        string
+	ChunkSizeMb int64
+
+	Operation string
+	Daemon    bool
 }

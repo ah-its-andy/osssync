@@ -24,7 +24,7 @@ const (
 	Arg_Provider        = "provider"
 	Arg_BucketName      = "bucket_name"
 	Arg_CredentialsFile = "credentials_file"
-	Arg_IndexOnly       = "index_only"
+	Arg_Operation       = "operation"
 	Arg_FullIndex       = "full_index"
 	Arg_RemoteDir       = "remote_dir"
 	Arg_Salt            = "salt"

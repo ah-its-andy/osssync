@@ -62,16 +62,26 @@ func Run() error {
 		return tracing.Error(err)
 	}
 	if statInfo.IsDir() {
-		if config.RequireValue[bool](core.Arg_IndexOnly) {
-			err = client.IndexDir(sourcePath, config.RequireValue[bool](core.Arg_FullIndex))
-		} else {
-			err = client.SyncDir(sourcePath,
+		operation := config.RequireString(core.Arg_Operation)
+		switch operation {
+		case "index":
+			return client.IndexDir(sourcePath, config.RequireValue[bool](core.Arg_FullIndex))
+
+		case "push":
+			return client.PushDir(sourcePath,
 				core.FileType(config.RequireString(core.Arg_Provider)),
 				config.RequireValue[bool](core.Arg_FullIndex))
+
+		case "pull":
+			return fmt.Errorf("pull operation is not supported yet")
+
+		case "sync":
+			return fmt.Errorf("sync operation is not supported yet")
+
+		default:
+			return fmt.Errorf("unknown operation: %s", operation)
 		}
-		if err != nil {
-			return tracing.Error(err)
-		}
+
 	} else {
 		return fmt.Errorf("source path is not a directory: %s", sourcePath)
 	}

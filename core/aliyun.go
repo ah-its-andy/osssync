@@ -3,14 +3,11 @@ package core
 import (
 	"bytes"
 	"errors"
-	"fmt"
-	"io"
 	"math"
-	"os"
-	"osssync/common/config"
 	"osssync/common/tracing"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 )
@@ -122,99 +119,19 @@ func (fileInfo *AliOSSFileInfo) Exists() (bool, error) {
 func (fileInfo *AliOSSFileInfo) Size() int64 {
 	return fileInfo.contentLength
 }
-func (fileInfo *AliOSSFileInfo) OpenRead() (io.Reader, error) {
-	reader, err := fileInfo.bucket.GetObject(fileInfo.objectName)
-	if err != nil {
-		return nil, tracing.Error(err)
-	}
-	return reader, nil
-}
-func (fileInfo *AliOSSFileInfo) Copy(src FileInfo) error {
-	options := []oss.Option{}
-	for k, v := range fileInfo.metaData {
-		options = append(options, oss.Meta(string(k), v))
-	}
-	if src.Size() > 5*1024*1024 {
-		return fileInfo.putChunkFile(src, 5, options...)
-	} else {
-		return fileInfo.putLittleFile(src, options...)
-	}
-}
 
-func (fileInfo *AliOSSFileInfo) putLittleFile(src FileInfo, options ...oss.Option) error {
-	reader, err := src.OpenRead()
-	if err != nil {
-		return tracing.Error(err)
-	}
-	defer src.Close()
-
-	cryptoFile, err := NewCryptoChunkedFile(reader.(*os.File), int(src.Size()), []byte(config.RequireString(Arg_Salt)))
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	cryptoBuffer, err := cryptoFile.ComputeHash()
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	err = fileInfo.bucket.PutObject(fileInfo.objectName, bytes.NewReader(cryptoBuffer), options...)
-	if err != nil {
-		return tracing.Error(err)
-	}
-	return nil
-}
-
-func (fileInfo *AliOSSFileInfo) putChunkFile(src FileInfo, chunkSizeMb int64, options ...oss.Option) error {
-	reader, err := src.OpenRead()
-	if err != nil {
-		return tracing.Error(err)
-	}
-	defer src.Close()
-
-	cryptoFile, err := NewCryptoChunkedFile(reader.(*os.File), int(chunkSizeMb*1024*1024), []byte(config.RequireString(Arg_Salt)))
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	cryptoSize, err := cryptoFile.Size()
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	chunkNum := int(math.Ceil(float64(cryptoSize) / float64(chunkSizeMb*1024*1024)))
-	chunks, err := splitFileByPartNum(cryptoSize, chunkNum)
-	if err != nil {
-		return tracing.Error(err)
-	}
-	// 步骤1：初始化一个分片上传事件，并指定存储类型为标准存储。
-	imur, err := fileInfo.bucket.InitiateMultipartUpload(fileInfo.objectName, options...)
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	go cryptoFile.ComputeHash()
-
-	// 步骤2：上传分片。
-	var parts []oss.UploadPart
-	for _, chunk := range chunks {
-		cryptoBuffer := <-cryptoFile.ChunkBuffered()
-		// 调用UploadPart方法上传每个分片。
-		part, err := fileInfo.bucket.UploadPart(imur, bytes.NewBuffer(cryptoBuffer), chunk.Size, chunk.Number)
-		if err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(-1)
-		}
-		parts = append(parts, part)
-	}
-
-	// 步骤3：完成分片上传，指定文件读写权限为公共读。
-	_, err = fileInfo.bucket.CompleteMultipartUpload(imur, parts)
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	return nil
+func (fileInfo *AliOSSFileInfo) Stream() (FileStream, error) {
+	return &AliOSSFileStream{
+		client:        fileInfo.client,
+		bucket:        fileInfo.bucket,
+		bucketName:    fileInfo.bucketName,
+		objectName:    fileInfo.objectName,
+		contentLength: fileInfo.contentLength,
+		options:       make([]oss.Option, 0),
+		uploadParts:   make([]oss.UploadPart, 0),
+		buffer:        make([]byte, 0),
+		flushLock:     &sync.Mutex{},
+	}, nil
 }
 
 func (fileInfo *AliOSSFileInfo) MD5() (string, error) {
@@ -243,28 +160,145 @@ func (fileInfo *AliOSSFileInfo) Remove() error {
 	return nil
 }
 
-func splitFileByPartNum(size int64, chunkNum int) ([]oss.FileChunk, error) {
+type AliOSSFileStream struct {
+	bucketName    string
+	objectName    string
+	contentLength int64
+	options       []oss.Option
+
+	client      *oss.Client
+	bucket      *oss.Bucket
+	imur        oss.InitiateMultipartUploadResult
+	uploadParts []oss.UploadPart
+
+	buffer []byte
+	offset int64
+
+	flushLock *sync.Mutex
+}
+
+func (stream *AliOSSFileStream) Size() int64 {
+	return stream.contentLength
+}
+
+func (stream *AliOSSFileStream) Seek(offset int64, whence int) (int64, error) {
+	return 0, errors.New("not support")
+}
+
+func (stream *AliOSSFileStream) Read(p []byte) (n int, err error) {
+	reader, err := stream.bucket.GetObject(stream.objectName, stream.options...)
+	if err != nil {
+		return 0, tracing.Error(err)
+	}
+
+	return reader.Read(p)
+}
+
+func (stream *AliOSSFileStream) Write(p []byte) (n int, err error) {
+	if stream.buffer == nil {
+		stream.buffer = make([]byte, 0)
+	}
+	stream.buffer = append(stream.buffer, p...)
+	return len(p), nil
+}
+
+func (stream *AliOSSFileStream) Flush() error {
+	if len(stream.uploadParts) == 0 {
+		err := stream.bucket.PutObject(stream.objectName, bytes.NewReader(stream.buffer), stream.options...)
+		if err != nil {
+			return tracing.Error(err)
+		}
+	} else {
+		_, err := stream.bucket.CompleteMultipartUpload(stream.imur, stream.uploadParts)
+		if err != nil {
+			return tracing.Error(err)
+		}
+	}
+	return nil
+}
+
+func (stream *AliOSSFileStream) Close() error {
+	return nil
+}
+
+func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]FileChunkWriter, error) {
+	chunkNum := int(math.Ceil(float64(fileSize) / float64(chunkSize)))
 	if chunkNum <= 0 || chunkNum > 10000 {
 		return nil, errors.New("chunkNum invalid")
 	}
 
-	if int64(chunkNum) > size {
+	if int64(chunkNum) > fileSize {
 		return nil, errors.New("oss: chunkNum invalid")
 	}
 
-	var chunks []oss.FileChunk
-	var chunk = oss.FileChunk{}
+	// 步骤1：初始化一个分片上传事件，并指定存储类型为标准存储。
+	imur, err := stream.bucket.InitiateMultipartUpload(stream.objectName, stream.options...)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	stream.imur = imur
+
+	var chunks []FileChunkWriter
 	var chunkN = (int64)(chunkNum)
 	for i := int64(0); i < chunkN; i++ {
+		chunk := oss.FileChunk{}
 		chunk.Number = int(i + 1)
-		chunk.Offset = i * (size / chunkN)
+		chunk.Offset = i * (fileSize / chunkN)
 		if i == chunkN-1 {
-			chunk.Size = size/chunkN + size%chunkN
+			chunk.Size = fileSize/chunkN + fileSize%chunkN
 		} else {
-			chunk.Size = size / chunkN
+			chunk.Size = fileSize / chunkN
 		}
-		chunks = append(chunks, chunk)
-	}
 
+		chunkWriter := &AliOSSChunkFileWriter{
+			fs:    stream,
+			chunk: chunk,
+		}
+		chunks = append(chunks, chunkWriter)
+	}
 	return chunks, nil
+}
+
+type AliOSSChunkFileWriter struct {
+	fs    *AliOSSFileStream
+	chunk oss.FileChunk
+
+	result *oss.UploadPart
+}
+
+func (writer *AliOSSChunkFileWriter) Write(p []byte) (n int, err error) {
+	// 调用UploadPart方法上传每个分片。
+	part, err := writer.fs.bucket.UploadPart(writer.fs.imur, bytes.NewBuffer(p), writer.chunk.Size, writer.chunk.Number)
+	if err != nil {
+		return 0, err
+	}
+	writer.result = &part
+	return len(p), nil
+}
+
+func (writer *AliOSSChunkFileWriter) Flush() error {
+	if writer.result == nil {
+		return nil
+	}
+	writer.fs.flushLock.Lock()
+	defer writer.fs.flushLock.Unlock()
+	writer.fs.uploadParts = append(writer.fs.uploadParts, *writer.result)
+	writer.result = nil
+	return nil
+}
+
+func (writer *AliOSSChunkFileWriter) Close() error {
+	return nil
+}
+
+func (writer *AliOSSChunkFileWriter) Number() int64 {
+	return int64(writer.chunk.Number)
+}
+
+func (writer *AliOSSChunkFileWriter) ChunkSize() int64 {
+	return writer.chunk.Size
+}
+
+func (writer *AliOSSChunkFileWriter) Offset() int64 {
+	return writer.chunk.Offset
 }

@@ -16,17 +16,18 @@ import (
 )
 
 type FileInfo interface {
+	io.Closer
+
 	Name() string
 	Path() string
 	Size() int64
-	OpenRead() (io.Reader, error)
-	Copy(src FileInfo) error
 	MD5() (string, error)
 	CRC32() (uint32, error)
 	Exists() (bool, error)
 	Properties() map[PropertyName]string
 	Remove() error
-	Close() error
+
+	Stream() (FileStream, error)
 }
 
 type PhysicalFileInfo struct {
@@ -92,6 +93,17 @@ func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
 	return fileInfo.exists, nil
 }
 
+func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
+	err := fileInfo.open()
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	return &PhysicalFileStream{
+		f:    fileInfo.file,
+		stat: fileInfo.statInfo,
+	}, nil
+}
+
 func (fileInfo *PhysicalFileInfo) open() error {
 	if fileInfo.isIdle {
 		file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
@@ -102,35 +114,6 @@ func (fileInfo *PhysicalFileInfo) open() error {
 		fileInfo.isIdle = false
 	}
 	return nil
-}
-
-func (fileInfo *PhysicalFileInfo) OpenRead() (io.Reader, error) {
-	if err := fileInfo.open(); err != nil {
-		return nil, tracing.Error(err)
-	}
-	return fileInfo.file, nil
-}
-
-func (fileInfo *PhysicalFileInfo) Copy(src FileInfo) error {
-	if err := fileInfo.open(); err != nil {
-		return tracing.Error(err)
-	}
-	reader, err := src.OpenRead()
-	if err != nil {
-		return tracing.Error(err)
-	}
-	_, err = io.Copy(fileInfo.file, reader)
-	if err != nil {
-		return tracing.Error(err)
-	}
-	return nil
-}
-
-func (fileInfo *PhysicalFileInfo) OpenWrite() (io.Writer, error) {
-	if err := fileInfo.open(); err != nil {
-		return nil, tracing.Error(err)
-	}
-	return fileInfo.file, nil
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
