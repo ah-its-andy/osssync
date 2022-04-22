@@ -63,6 +63,7 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	}
 	fileInfo.statInfo = statInfo
 	fileInfo.exists = true
+	fileInfo.isIdle = true
 
 	err = fileInfo.ComputeHashOnce()
 	if err != nil {

@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/aliyun/aliyun-oss-go-sdk v2.2.2+incompatible
+	github.com/chentaihan/aesCbc v0.0.0-20201028024852-1c4d1700b583
 	github.com/google/uuid v1.3.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/logoove/sqlite v1.15.3

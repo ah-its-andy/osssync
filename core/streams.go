@@ -1,13 +1,17 @@
 package core
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"os"
+
+	"github.com/chentaihan/aesCbc"
 )
 
 type FileWriter interface {
@@ -152,44 +156,88 @@ func (writer *PhysicalChunkedFileWriter) Flush() error {
 }
 
 type CryptoOptions struct {
-	KeySize int
-	Salt    []byte
+	Salt []byte
 }
 
-func GenerateCryptoChunkWrites(stream FileStream, chunkSize int64, cryptoOptions CryptoOptions) ([]FileChunkWriter, error) {
+func GenerateCryptoHeader(chunkSize int64, algorithm int, blockSize int, iv []byte, crc32 int64) []byte {
+	chunkSizeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(chunkSizeBytes, uint64(chunkSize))
+	algorithmBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(algorithmBytes, uint32(algorithm))
+	blockSizeBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(blockSizeBytes, uint32(blockSize))
+	crc32Bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(crc32Bytes, uint64(crc32))
+	ivBytes := make([]byte, len(iv))
+	copy(ivBytes, iv)
+
+	headerSize := 4 + len(chunkSizeBytes) + len(algorithmBytes) + len(blockSizeBytes) + len(ivBytes) + len(crc32Bytes)
+	headerSizeBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(headerSizeBytes, uint32(headerSize))
+
+	header := make([]byte, headerSize)
+	// 0 - 3: header size
+	copy(header[0:], headerSizeBytes)
+	// 4-11: chunkSize
+	copy(header[4:], chunkSizeBytes)
+	// 12-15: algorithm
+	copy(header[12:], algorithmBytes)
+	// 16-19: blockSize
+	copy(header[16:], blockSizeBytes)
+	// 20-: iv
+	copy(header[20:], ivBytes)
+	return header
+}
+
+func GenerateCryptoChunkWrites(stream FileStream, size int64, chunkSize int64, crc32 int64, cryptoOptions CryptoOptions) ([]FileChunkWriter, error) {
 	block, err := NewCipherBlock(cryptoOptions)
 	if err != nil {
 		return nil, err
 	}
-
-	// header size
-	headerSize := 16 + aes.BlockSize
-	// 0: chunk size, 1-4: crc32, 5-16: 0x00, 17-ends: iv
 
 	iv := make([]byte, aes.BlockSize)
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, err
 	}
 
-	fileSize := stream.Size() + int64(headerSize)
-	streamChunks, err := stream.ChunkWrites(fileSize, chunkSize)
+	headerBuffer := GenerateCryptoHeader(chunkSize, 0, block.BlockSize(), iv, crc32)
+	headerSize := len(headerBuffer)
+
+	fileSize := size + int64(headerSize)
+	blockNum := int64(math.Ceil(float64(fileSize) / float64(block.BlockSize())))
+	fullBlockSize := blockNum * int64(block.BlockSize())
+
+	streamChunks, err := stream.ChunkWrites(fullBlockSize, chunkSize)
 	chunks := make([]FileChunkWriter, len(streamChunks))
 	for i, chunk := range streamChunks {
 		chunks[i] = &CryptoChunkedFileWriter{
-			chunkFile: chunk,
-			chunkSize: chunkSize,
-			number:    int64(i + 1),
-			offset:    0,
-			buffer:    make([]byte, chunkSize),
-			block:     block,
-			iv:        iv,
+			chunkFile:  chunk,
+			chunkSize:  chunkSize,
+			number:     int64(i + 1),
+			offset:     0,
+			buffer:     make([]byte, chunkSize),
+			cryptoOpts: cryptoOptions,
+			block:      block,
+			iv:         iv,
 		}
+	}
+	_, err = chunks[0].Write(headerBuffer)
+	if err != nil {
+		return nil, err
 	}
 	return chunks, nil
 }
 
 func NewCipherBlock(cryptoOptions CryptoOptions) (cipher.Block, error) {
-	block, err := aes.NewCipher(cryptoOptions.Salt)
+	salt := make([]byte, len(cryptoOptions.Salt))
+	copy(salt, cryptoOptions.Salt)
+	if len(salt) < 32 {
+		salt = pkcs5Padding(salt, 32)
+	} else if len(salt) > 32 {
+		salt = salt[:32]
+	}
+
+	block, err := aes.NewCipher(salt)
 	if err != nil {
 		return nil, err
 	}
@@ -201,10 +249,13 @@ type CryptoFileWriter struct {
 	block cipher.Block
 	iv    []byte
 
+	offset int64
 	buffer []byte
+
+	cryptoOpts CryptoOptions
 }
 
-func NewCryptoFileWriter(fw FileWriter, cryptoOpts CryptoOptions) (*CryptoFileWriter, error) {
+func NewCryptoFileWriter(fw FileWriter, size int64, crc32 int64, cryptoOpts CryptoOptions) (*CryptoFileWriter, error) {
 	block, err := NewCipherBlock(cryptoOpts)
 	if err != nil {
 		return nil, err
@@ -213,16 +264,24 @@ func NewCryptoFileWriter(fw FileWriter, cryptoOpts CryptoOptions) (*CryptoFileWr
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, err
 	}
+
+	headerBuffer := GenerateCryptoHeader(0, 0, block.BlockSize(), iv, crc32)
+	headerSize := len(headerBuffer)
+	buffer := make([]byte, headerSize+int(size))
+	copy(buffer[0:], headerBuffer)
 	return &CryptoFileWriter{
-		fw:     fw,
-		block:  block,
-		iv:     iv,
-		buffer: make([]byte, cryptoOpts.KeySize),
+		block:      block,
+		fw:         fw,
+		iv:         iv,
+		buffer:     buffer,
+		offset:     int64(headerSize),
+		cryptoOpts: cryptoOpts,
 	}, nil
 }
 
 func (writer *CryptoFileWriter) Write(p []byte) (n int, err error) {
-	writer.buffer = append(writer.buffer, p...)
+	copy(writer.buffer[writer.offset:], p)
+	writer.offset += int64(len(p))
 	return len(p), nil
 }
 
@@ -231,16 +290,17 @@ func (writer *CryptoFileWriter) Flush() error {
 		return nil
 	}
 
-	mode := cipher.NewCBCEncrypter(writer.block, writer.iv)
-	blockBuffer := make([]byte, len(writer.buffer))
-	mode.CryptBlocks(blockBuffer, writer.buffer)
+	content := make([]byte, len(writer.buffer))
+	copy(content, writer.buffer)
+
+	blockBuffer := aesCbc.AesEncrypt(writer.cryptoOpts.Salt, writer.iv, content)
 
 	_, err := writer.fw.Write(blockBuffer)
 	if err != nil {
 		return err
 	}
 
-	return writer.Flush()
+	return writer.fw.Flush()
 }
 
 func (writer *CryptoFileWriter) Close() error {
@@ -248,9 +308,11 @@ func (writer *CryptoFileWriter) Close() error {
 }
 
 type CryptoChunkedFileWriter struct {
-	chunkFile FileChunkWriter
 	block     cipher.Block
+	chunkFile FileChunkWriter
 	iv        []byte
+
+	cryptoOpts CryptoOptions
 
 	chunkSize int64
 	number    int64
@@ -260,7 +322,9 @@ type CryptoChunkedFileWriter struct {
 }
 
 func (writer *CryptoChunkedFileWriter) Write(p []byte) (int, error) {
-	if len(p) > int(writer.chunkFile.ChunkSize())-int(writer.chunkFile.Offset()) {
+	payloadSize := len(p)
+	chunkSize := int(writer.chunkFile.ChunkSize()) - int(writer.Offset())
+	if payloadSize > chunkSize {
 		return 0, ErrIndexOutOfRange
 	}
 
@@ -273,10 +337,9 @@ func (writer *CryptoChunkedFileWriter) Flush() error {
 	if len(writer.buffer) == 0 {
 		return writer.chunkFile.Flush()
 	}
-
-	mode := cipher.NewCBCEncrypter(writer.block, writer.iv)
-	blockBuffer := make([]byte, len(writer.buffer))
-	mode.CryptBlocks(blockBuffer, writer.buffer)
+	content := make([]byte, len(writer.buffer))
+	copy(content, writer.buffer)
+	blockBuffer := aesCbc.AesEncrypt(writer.cryptoOpts.Salt, writer.iv, content)
 
 	_, err := writer.chunkFile.Write(blockBuffer)
 	if err != nil {
@@ -297,4 +360,15 @@ func (writer *CryptoChunkedFileWriter) ChunkSize() int64 {
 }
 func (writer *CryptoChunkedFileWriter) Offset() int64 {
 	return writer.offset
+}
+
+func pkcs5Padding(ciphertext []byte, blockSize int) []byte {
+	padding := blockSize - len(ciphertext)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(ciphertext, padtext...)
+}
+
+func pkcs5Trimming(encrypt []byte) []byte {
+	padding := encrypt[len(encrypt)-1]
+	return encrypt[:len(encrypt)-int(padding)]
 }

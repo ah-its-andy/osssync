@@ -134,9 +134,10 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 	if chunkSize > fileSize {
 		var bufWriter core.FileWriter
 		if len(salt) > 0 {
-			cryptoWriter, err := core.NewCryptoFileWriter(fs, core.CryptoOptions{
-				Salt: []byte(config.RequireString(core.Arg_Salt)),
-			})
+			cryptoWriter, err := core.NewCryptoFileWriter(fs, fileSize, int64(crc32),
+				core.CryptoOptions{
+					Salt: []byte(config.RequireString(core.Arg_Salt)),
+				})
 			if err != nil {
 				return tracing.Error(err)
 			}
@@ -157,9 +158,10 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 		// chunk writes
 		var chunks []core.FileChunkWriter
 		if len(salt) > 0 {
-			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, chunkSize, core.CryptoOptions{
-				Salt: []byte(config.RequireString(core.Arg_Salt)),
-			})
+			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, fileSize, chunkSize, int64(crc32),
+				core.CryptoOptions{
+					Salt: []byte(config.RequireString(core.Arg_Salt)),
+				})
 			if err != nil {
 				return tracing.Error(err)
 			}
@@ -177,7 +179,12 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 			return tracing.Error(err)
 		}
 		for _, chunk := range chunks {
-			tmp := make([]byte, chunkSize)
+			offset := chunkSize * (chunk.Number() - 1)
+			bufferSize := chunkSize - chunk.Offset()
+			if offset+chunkSize > fileSize {
+				bufferSize = fileSize - offset
+			}
+			tmp := make([]byte, bufferSize)
 			_, err := srcFs.Read(tmp)
 
 			if err != nil && err != io.EOF {
@@ -185,7 +192,7 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 			}
 
 			if err != io.EOF {
-				_, err = srcFs.Seek(0, io.SeekCurrent)
+				_, err = srcFs.Seek(chunkSize, io.SeekCurrent)
 				if err != nil {
 					return tracing.Error(err)
 				}
@@ -270,7 +277,11 @@ func PushDir(path string, targetType core.FileType, fullIndex bool) error {
 			defer wg.Done()
 			err := PushFile(srcFileInfo, targetType, fullIndex)
 			if err != nil {
-				if !tracing.IsError(err, ErrObjectExists) {
+				if tracing.IsError(ErrSyncedAlready, err) {
+					logging.Debug(fmt.Sprintf("File %s has been synced already", srcFileInfo.Name()), nil)
+				} else if tracing.IsError(err, ErrObjectExists) {
+					logging.Debug(fmt.Sprintf("File %s exists at remote storage provider", srcFileInfo.Name()), nil)
+				} else {
 					logging.Error(err, nil)
 				}
 			} else {

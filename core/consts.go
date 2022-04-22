@@ -3,12 +3,12 @@ package core
 type PropertyName string
 
 const (
-	PropertyName_ContentLength  PropertyName = "X-Content-Length"
-	PropertyName_ContentName    PropertyName = "X-Content-Name"
-	PropertyName_ContentMD5     PropertyName = "X-Content-MD5"
-	PropertyName_ContentCRC32   PropertyName = "X-Content-CRC32"
-	PropertyName_ContentModTime PropertyName = "X-Content-ModTime"
-	PropertyName_ContentType    PropertyName = "X-Content-Type"
+	PropertyName_ContentLength  PropertyName = "x-content-length"
+	PropertyName_ContentName    PropertyName = "x-content-name"
+	PropertyName_ContentMD5     PropertyName = "x-content-md5"
+	PropertyName_ContentCRC32   PropertyName = "x-content-crc32"
+	PropertyName_ContentModTime PropertyName = "x-content-modtime"
+	PropertyName_ContentType    PropertyName = "x-content-type"
 )
 
 type FileType string

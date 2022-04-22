@@ -3,7 +3,9 @@ package core
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math"
+	"osssync/common/logging"
 	"osssync/common/tracing"
 	"strconv"
 	"strings"
@@ -42,6 +44,10 @@ type AliOSSFileInfo struct {
 	bucket *oss.Bucket
 }
 
+func normalizeAliOSSMetaKey(k string) string {
+	return strings.Replace(strings.ToLower(k), "x-oss-meta-", "", 1)
+}
+
 func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (FileInfo, error) {
 	client, err := oss.New(config.EndPoint, config.AccessKeyId, config.AccessKeySecret)
 	if err != nil {
@@ -74,7 +80,7 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 	}
 	metaMap := make(map[PropertyName]string)
 	for k, v := range metaHeader {
-		metaMap[PropertyName(k)] = v[0]
+		metaMap[PropertyName(normalizeAliOSSMetaKey(k))] = v[0]
 	}
 	fileInfo := &AliOSSFileInfo{
 		bucketName: bucketName,
@@ -121,13 +127,22 @@ func (fileInfo *AliOSSFileInfo) Size() int64 {
 }
 
 func (fileInfo *AliOSSFileInfo) Stream() (FileStream, error) {
+	pushTags := []PropertyName{PropertyName_ContentCRC32, PropertyName_ContentLength, PropertyName_ContentMD5, PropertyName_ContentModTime}
+	opts := make([]oss.Option, 0)
+	for k, v := range fileInfo.metaData {
+		for _, pushTag := range pushTags {
+			if pushTag == k {
+				opts = append(opts, oss.Meta(string(pushTag), v))
+			}
+		}
+	}
 	return &AliOSSFileStream{
 		client:        fileInfo.client,
 		bucket:        fileInfo.bucket,
 		bucketName:    fileInfo.bucketName,
 		objectName:    fileInfo.objectName,
 		contentLength: fileInfo.contentLength,
-		options:       make([]oss.Option, 0),
+		options:       opts,
 		uploadParts:   make([]oss.UploadPart, 0),
 		buffer:        make([]byte, 0),
 		flushLock:     &sync.Mutex{},
@@ -208,6 +223,7 @@ func (stream *AliOSSFileStream) Flush() error {
 		if err != nil {
 			return tracing.Error(err)
 		}
+		logging.Debug(fmt.Sprintf("flush object %s succeeded", stream.objectName), nil)
 	} else {
 		_, err := stream.bucket.CompleteMultipartUpload(stream.imur, stream.uploadParts)
 		if err != nil {
@@ -245,9 +261,9 @@ func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]
 		chunk.Number = int(i + 1)
 		chunk.Offset = i * (fileSize / chunkN)
 		if i == chunkN-1 {
-			chunk.Size = fileSize/chunkN + fileSize%chunkN
+			chunk.Size = fileSize - i*chunkSize
 		} else {
-			chunk.Size = fileSize / chunkN
+			chunk.Size = chunkSize
 		}
 
 		chunkWriter := &AliOSSChunkFileWriter{
@@ -270,7 +286,7 @@ func (writer *AliOSSChunkFileWriter) Write(p []byte) (n int, err error) {
 	// 调用UploadPart方法上传每个分片。
 	part, err := writer.fs.bucket.UploadPart(writer.fs.imur, bytes.NewBuffer(p), writer.chunk.Size, writer.chunk.Number)
 	if err != nil {
-		return 0, err
+		return 0, tracing.Error(err)
 	}
 	writer.result = &part
 	return len(p), nil
