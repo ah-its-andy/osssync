@@ -145,6 +145,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 			if offset+chunkSize > fileSize {
 				bufferSize = fileSize - offset
 			}
+
 			tmp := make([]byte, bufferSize)
 			_, err := srcFs.Read(tmp)
 
@@ -152,12 +153,12 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 				return tracing.Error(err)
 			}
 
-			if err != io.EOF {
-				_, err = srcFs.Seek(chunkSize, io.SeekCurrent)
-				if err != nil {
-					return tracing.Error(err)
-				}
-			}
+			// if err != io.EOF {
+			// 	_, err = srcFs.Seek(chunkSize, io.SeekCurrent)
+			// 	if err != nil {
+			// 		return tracing.Error(err)
+			// 	}
+			// }
 
 			_, err = chunk.Write(tmp)
 			if err != nil {
