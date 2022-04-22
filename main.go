@@ -20,7 +20,7 @@ func main() {
 	flag.BoolVar(&args.FullIndex, "fullIndex", false, "full index")
 	flag.StringVar(&args.Salt, "salt", "", "salt")
 	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
-	flag.StringVar(&args.Operation, "direction", "", "sync direction, [index, push, pull, sync]")
+	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
 	flag.Parse()
 
 	if args.SourcePath == "" {

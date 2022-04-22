@@ -128,32 +128,50 @@ func PushFile(src core.FileInfo, targetType core.FileType, fullIndex bool) error
 	}
 
 	fileSize := src.Size()
-	chunkSizeMb := int64(config.RequireValue[float64](core.Arg_ChunkSizeMb))
+	chunkSizeMb := int64(config.GetValueOrDefault[float64](core.Arg_ChunkSizeMb, 5))
 	chunkSize := chunkSizeMb * 1024 * 1024
+	salt := []byte(config.RequireString(core.Arg_Salt))
 	if chunkSize > fileSize {
-		cryptoWriter, err := core.NewCryptoFileWriter(fs, core.CryptoOptions{
-			Salt: []byte(config.RequireString(core.Arg_Salt)),
-		})
+		var bufWriter core.FileWriter
+		if len(salt) > 0 {
+			cryptoWriter, err := core.NewCryptoFileWriter(fs, core.CryptoOptions{
+				Salt: []byte(config.RequireString(core.Arg_Salt)),
+			})
+			if err != nil {
+				return tracing.Error(err)
+			}
+			bufWriter = cryptoWriter
+		} else {
+			bufWriter = fs
+		}
+		defer bufWriter.Close()
+		_, err = io.Copy(bufWriter, srcFs)
 		if err != nil {
 			return tracing.Error(err)
 		}
-		defer cryptoWriter.Close()
-		_, err = io.Copy(cryptoWriter, srcFs)
-		if err != nil {
-			return tracing.Error(err)
-		}
-		err = cryptoWriter.Flush()
+		err = bufWriter.Flush()
 		if err != nil {
 			return tracing.Error(err)
 		}
 	} else {
 		// chunk writes
-		chunks, err := core.GenerateCryptoChunkWrites(fs, chunkSize, core.CryptoOptions{
-			Salt: []byte(config.RequireString(core.Arg_Salt)),
-		})
-		if err != nil {
-			return tracing.Error(err)
+		var chunks []core.FileChunkWriter
+		if len(salt) > 0 {
+			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, chunkSize, core.CryptoOptions{
+				Salt: []byte(config.RequireString(core.Arg_Salt)),
+			})
+			if err != nil {
+				return tracing.Error(err)
+			}
+			chunks = cryptoChunks
+		} else {
+			streamChunks, err := fs.ChunkWrites(src.Size(), chunkSize)
+			if err != nil {
+				return tracing.Error(err)
+			}
+			chunks = streamChunks
 		}
+
 		_, err = srcFs.Seek(0, io.SeekStart)
 		if err != nil {
 			return tracing.Error(err)
