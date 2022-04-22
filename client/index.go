@@ -1,6 +1,7 @@
 package client
 
 import (
+	"crypto/md5"
 	"fmt"
 	"os"
 	"osssync/common/dataAccess/nosqlite"
@@ -8,39 +9,63 @@ import (
 	"osssync/common/tracing"
 	"osssync/core"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/mr-tron/base58"
 )
 
+func GetIndexName(f core.FileInfo) (string, error) {
+	fileHashContents := make([]string, 0)
+	fileProperties := f.Properties()
+	if v, ok := fileProperties[core.PropertyName_ContentModTime]; ok {
+		fileHashContents = append(fileHashContents, v)
+	}
+	if v, ok := fileProperties[core.PropertyName_ContentLength]; ok {
+		fileHashContents = append(fileHashContents, v)
+	}
+	if v, ok := fileProperties[core.PropertyName_ContentName]; ok {
+		fileHashContents = append(fileHashContents, v)
+	}
+	md5Cipher := md5.New()
+	_, err := md5Cipher.Write([]byte(strings.Join(fileHashContents, ";")))
+	if err != nil {
+		return "", tracing.Error(err)
+	}
+	objectIndexName := base58.Encode(md5Cipher.Sum(nil))
+	return objectIndexName, nil
+}
+
 func IndexFile(f core.FileInfo, fullIndex bool) error {
-	crc32, err := f.CRC32()
+	objectIndexName, err := GetIndexName(f)
 	if err != nil {
 		return tracing.Error(err)
 	}
-	crc32Str := strconv.FormatInt(int64(crc32), 10)
 
-	objectIndex, err := nosqlite.Get[ObjectIndexModel](crc32Str)
+	objectIndex, err := nosqlite.Get[ObjectIndexModel](objectIndexName)
 	if err != nil && !tracing.IsError(err, nosqlite.ErrRecordNotFound) {
 		return tracing.Error(err)
 	}
 
-	if crc32Str == objectIndex.CRC32 {
-		if fullIndex {
-			nosqlite.Remove[ObjectIndexModel](objectIndex.Name)
-		} else {
-			return ErrIndexedAlready
-		}
+	if err == nil && !fullIndex {
+		return ErrIndexedAlready
 	}
 
+	nosqlite.Remove[ObjectIndexModel](objectIndex.Name)
+
+	crc32, err := f.CRC32()
+	if err != nil {
+		return tracing.Error(err)
+	}
 	md5, err := f.MD5()
 	if err != nil {
 		return tracing.Error(err)
 	}
 	objectIndex = ObjectIndexModel{
-		Name:     fmt.Sprintf("%d", crc32),
+		Name:     objectIndexName,
 		FilePath: f.Path(),
 		FileName: f.Name(),
-		CRC32:    crc32Str,
+		CRC32:    fmt.Sprintf("%d", crc32),
 		MD5:      md5,
 		Synced:   "",
 		Size:     f.Size(),

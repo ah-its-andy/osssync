@@ -27,13 +27,18 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 	}
 
-	crc32, err := src.CRC32()
+	// crc32, err := src.CRC32()
+	// if err != nil {
+	// 	return tracing.Error(err)
+	// }
+	// crc32Str := strconv.FormatInt(int64(crc32), 10)
+
+	indexedName, err := GetIndexName(src)
 	if err != nil {
 		return tracing.Error(err)
 	}
-	crc32Str := strconv.FormatInt(int64(crc32), 10)
 
-	indexedModel, err := nosqlite.Get[ObjectIndexModel](crc32Str)
+	indexedModel, err := nosqlite.Get[ObjectIndexModel](indexedName)
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -60,12 +65,17 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
+	crc32, err := strconv.ParseInt(indexedModel.CRC32, 10, 64)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
 	if targetExists {
 		targetCrc32, err := targetFileInfo.CRC32()
 		if err != nil {
 			return tracing.Error(err)
 		}
-		if targetCrc32 == crc32 {
+		if int64(targetCrc32) == crc32 {
 			return ErrObjectExists
 		} else {
 			err = targetFileInfo.Remove()
@@ -75,7 +85,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 	}
 
-	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = crc32Str
+	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = indexedModel.CRC32
 
 	fs, err := targetFileInfo.Stream()
 	if err != nil {
