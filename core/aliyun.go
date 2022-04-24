@@ -35,6 +35,8 @@ type AliOSSConfig struct {
 type AliOSSFileInfo struct {
 	bucketName    string
 	objectName    string
+	objectDir     string
+	relativePath  string
 	exists        bool
 	contentLength int64
 
@@ -48,7 +50,7 @@ func normalizeAliOSSMetaKey(k string) string {
 	return strings.Replace(strings.ToLower(k), "x-oss-meta-", "", 1)
 }
 
-func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (FileInfo, error) {
+func OpenAliOSS(config AliOSSConfig, bucketName string, objectDir string, relativePath string) (FileInfo, error) {
 	client, err := oss.New(config.EndPoint, config.AccessKeyId, config.AccessKeySecret)
 	if err != nil {
 		return nil, tracing.Error(err)
@@ -57,31 +59,33 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 	if err != nil {
 		return nil, tracing.Error(err)
 	}
-	if strings.HasPrefix(objectName, "/") {
-		objectName = objectName[1:]
-	}
+	objectName := JoinUri(objectDir, relativePath)
 	exists, err := bucket.IsObjectExist(objectName)
 	if err != nil {
 		return nil, tracing.Error(err)
 	}
 	if !exists {
 		return &AliOSSFileInfo{
-			bucketName: bucketName,
-			objectName: objectName,
-			exists:     false,
-			client:     client,
-			bucket:     bucket,
-			metaData:   make(map[PropertyName]string),
+			bucketName:   bucketName,
+			objectName:   objectName,
+			objectDir:    objectDir,
+			relativePath: relativePath,
+			exists:       false,
+			client:       client,
+			bucket:       bucket,
+			metaData:     make(map[PropertyName]string),
 		}, nil
 	}
 
 	fileInfo := &AliOSSFileInfo{
-		bucketName: bucketName,
-		objectName: objectName,
-		exists:     true,
-		client:     client,
-		bucket:     bucket,
-		metaData:   make(map[PropertyName]string),
+		bucketName:   bucketName,
+		objectName:   objectName,
+		objectDir:    objectDir,
+		relativePath: relativePath,
+		exists:       true,
+		client:       client,
+		bucket:       bucket,
+		metaData:     make(map[PropertyName]string),
 	}
 	err = fileInfo.refreshMetaData()
 	if err != nil {
@@ -130,6 +134,10 @@ func (fileInfo *AliOSSFileInfo) Path() string {
 	} else {
 		return fileInfo.objectName[:lastIndexOf]
 	}
+}
+
+func (fileInfo *AliOSSFileInfo) RelativePath() string {
+	return fileInfo.objectName
 }
 
 func (fileInfo *AliOSSFileInfo) Exists() (bool, error) {

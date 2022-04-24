@@ -20,6 +20,7 @@ type FileInfo interface {
 	FileType() string
 	Name() string
 	Path() string
+	RelativePath() string
 	Size() int64
 	MD5() (string, error)
 	CRC64() (uint64, error)
@@ -31,10 +32,11 @@ type FileInfo interface {
 }
 
 type PhysicalFileInfo struct {
-	path     string
-	statInfo os.FileInfo
-	exists   bool
-	isIdle   bool
+	path         string
+	relativePath string
+	statInfo     os.FileInfo
+	exists       bool
+	isIdle       bool
 
 	md5       []byte
 	md5Base58 string
@@ -44,7 +46,8 @@ type PhysicalFileInfo struct {
 	hashOnce sync.Once
 }
 
-func OpenPhysicalFile(filePath string) (FileInfo, error) {
+func OpenPhysicalFile(dirPath string, relativePath string) (FileInfo, error) {
+	filePath := JoinUri(dirPath, relativePath)
 	fileInfo := &PhysicalFileInfo{isIdle: true}
 	statInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -71,6 +74,7 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	}
 	fileInfo.statInfo = statInfo
 	fileInfo.exists = true
+	fileInfo.relativePath = relativePath
 
 	return fileInfo, nil
 }
@@ -92,6 +96,9 @@ func (fileInfo *PhysicalFileInfo) Name() string {
 }
 func (fileInfo *PhysicalFileInfo) Path() string {
 	return fileInfo.path
+}
+func (fileInfo *PhysicalFileInfo) RelativePath() string {
+	return fileInfo.relativePath
 }
 func (fileInfo *PhysicalFileInfo) Size() int64 {
 	return fileInfo.statInfo.Size()

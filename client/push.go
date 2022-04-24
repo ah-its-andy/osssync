@@ -10,6 +10,7 @@ import (
 	"osssync/common/tracing"
 	"osssync/core"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -28,7 +29,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return nil
 	}
 
-	dest, err := core.GetFile(core.JoinUri(destPath, src.Name()))
+	dest, err := core.GetFile(destPath, src.RelativePath())
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -59,7 +60,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 			if err != nil {
 				return tracing.Error(err)
 			}
-			targetFileInfo, err := core.GetFile(core.JoinUri(destPath, src.Name()))
+			targetFileInfo, err := core.GetFile(destPath, src.RelativePath())
 			if err != nil {
 				return tracing.Error(err)
 			}
@@ -82,6 +83,9 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 
 	fileSize := src.Size()
 	chunkSizeMb := int64(config.GetValueOrDefault[float64](core.Arg_ChunkSizeMb, 5))
+	if chunkSizeMb <= 0 {
+		chunkSizeMb = 5
+	}
 	chunkSize := chunkSizeMb * 1024 * 1024
 	if chunkSize > fileSize {
 		var bufWriter core.FileWriter
@@ -160,12 +164,16 @@ func PushDir(path string, destPath string, fullIndex bool) error {
 	if err != nil {
 		return tracing.Error(err)
 	}
+
+	sourcePath := config.RequireString(core.Arg_SourcePath)
 	var wg sync.WaitGroup
 	for _, rd := range rds {
 		if rd.IsDir() {
 			return PushDir(core.JoinUri(path, rd.Name()), destPath, fullIndex)
 		}
-		srcFileInfo, err := core.GetFile(core.JoinUri(path, rd.Name()))
+		filePath := core.JoinUri(path, rd.Name())
+		relativePath := strings.TrimPrefix(filePath, sourcePath)
+		srcFileInfo, err := core.GetFile(sourcePath, relativePath)
 		if err != nil {
 			return tracing.Error(err)
 		}

@@ -13,7 +13,9 @@ func JoinUri(a ...string) string {
 			p = strings.TrimPrefix(p, "/")
 		}
 		p = strings.TrimSuffix(p, "/")
-		parts[i] = p
+		if p != "" {
+			parts[i] = p
+		}
 	}
 	return strings.Join(parts, "/")
 }
