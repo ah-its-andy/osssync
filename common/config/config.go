@@ -59,11 +59,23 @@ func AttachFile(filePath string) error {
 	return nil
 }
 
+func AttachEnv(k string, overwrite bool) {
+	if v, ok := os.LookupEnv(k); ok {
+		if v == "" {
+			return
+		}
+		if _, exists := data[k]; !exists || overwrite {
+			data[k] = v
+		}
+	}
+}
+
 func AttachValue(k string, v interface{}) {
 	if data == nil {
 		data = make(map[string]interface{})
 	}
-	data[k] = v
+	data[k] = ConvertToStr(v)
+	AttachEnv(k, true)
 }
 
 func BindYaml(filePath string, receiver any) error {
@@ -124,8 +136,58 @@ func GetValue[T any](k string) (T, bool) {
 	}
 	if tv, ok := v.(T); ok {
 		return tv, true
+	} else if ts, ok := v.(string); ok {
+		return ConvertToType(ts, reflect.TypeOf(*(new(T)))).(T), true
 	} else {
 		return *(new(T)), false
+	}
+}
+
+func ConvertToType(v string, t reflect.Type) interface{} {
+	switch t.Kind() {
+	case reflect.Bool:
+		bv, _ := strconv.ParseBool(v)
+		return bv
+	case reflect.Int:
+		iv, _ := strconv.Atoi(v)
+		return iv
+	case reflect.Int8:
+		iv, _ := strconv.ParseInt(v, 10, 8)
+		return int8(iv)
+	case reflect.Int16:
+		iv, _ := strconv.ParseInt(v, 10, 16)
+		return int16(iv)
+	case reflect.Int32:
+		iv, _ := strconv.ParseInt(v, 10, 32)
+		return int32(iv)
+	case reflect.Int64:
+		iv, _ := strconv.ParseInt(v, 10, 64)
+		return iv
+	case reflect.Uint:
+		iv, _ := strconv.ParseUint(v, 10, 0)
+		return uint(iv)
+	case reflect.Uint8:
+		iv, _ := strconv.ParseUint(v, 10, 8)
+		return uint8(iv)
+	case reflect.Uint16:
+		iv, _ := strconv.ParseUint(v, 10, 16)
+		return uint16(iv)
+	case reflect.Uint32:
+		iv, _ := strconv.ParseUint(v, 10, 32)
+		return uint32(iv)
+	case reflect.Uint64:
+		iv, _ := strconv.ParseUint(v, 10, 64)
+		return iv
+	case reflect.Float32:
+		fv, _ := strconv.ParseFloat(v, 32)
+		return float32(fv)
+	case reflect.Float64:
+		fv, _ := strconv.ParseFloat(v, 64)
+		return fv
+	case reflect.String:
+		return v
+	default:
+		panic(fmt.Sprintf("unsupported type %s", t.Kind().String()))
 	}
 }
 

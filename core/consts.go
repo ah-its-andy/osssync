@@ -21,14 +21,13 @@ const (
 )
 
 const (
-	Arg_Config          = "config"
-	Arg_SourcePath      = "source_path"
-	Arg_DestPath        = "dest_path"
-	Arg_CredentialsFile = "credentials_file"
-	Arg_Operation       = "operation"
-	Arg_FullIndex       = "full_index"
-	Arg_Salt            = "salt"
-	Arg_ChunkSizeMb     = "chunk_size_mb"
+	Arg_Config          = "OSY_CONFIG_PATH"
+	Arg_SourcePath      = "OSY_SOURCE_PATH"
+	Arg_DestPath        = "OSY_DEST_PATH"
+	Arg_CredentialsFile = "OSY_CREDENTIALS"
+	Arg_Operation       = "OSY_OPERATION"
+	Arg_FullIndex       = "OSY_FULL_INDEX"
+	Arg_ChunkSizeMb     = "OSY_CHUNK_SIZE_MB"
 )
 
 var ErrCRC64NotMatch error = fmt.Errorf("crc64 not match")

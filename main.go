@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"net/url"
 	"os/user"
 	"osssync/app"
 	"osssync/common/config"
@@ -25,39 +24,22 @@ func main() {
 	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
 	flag.Parse()
 
-	if args.SourcePath == "" {
+	config.AttachValue(core.Arg_SourcePath, absFilePath(args.SourcePath))
+	config.AttachValue(core.Arg_CredentialsFile, absFilePath(args.CredentialsFile))
+	config.AttachValue(core.Arg_Config, absFilePath(args.Config))
+	config.AttachValue(core.Arg_Config, absFilePath(args.Config))
+	config.AttachValue(core.Arg_DestPath, args.DestPath)
+	config.AttachValue(core.Arg_Operation, args.Operation)
+	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
+	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
+
+	if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
 		panic("source path is required")
 	}
 
-	if args.Operation != "index" {
-		if args.DestPath == "" {
-			panic("DestPath is required")
-		}
+	if config.GetStringOrDefault(core.Arg_DestPath, "") == "" {
+		panic("DestPath is required")
 	}
-
-	absSourcePath := args.SourcePath
-	if !filepath.IsAbs(absSourcePath) {
-		absSourcePath, _ = filepath.Abs(args.SourcePath)
-	}
-	config.AttachValue(core.Arg_SourcePath, absSourcePath)
-
-	if args.Operation != "index" {
-		config.AttachValue(core.Arg_CredentialsFile, absFilePath(args.CredentialsFile))
-	}
-
-	if args.Config != "" {
-		config.AttachValue(core.Arg_Config, absFilePath(args.Config))
-	}
-
-	if args.DestPath != "" {
-		decodePath, _ := url.QueryUnescape(args.DestPath)
-		config.AttachValue(core.Arg_DestPath, decodePath)
-	}
-
-	config.AttachValue(core.Arg_Operation, args.Operation)
-	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
-	config.AttachValue(core.Arg_Salt, args.Salt)
-	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
 
 	err := app.Startup()
 	if err != nil {
@@ -87,6 +69,9 @@ type Args struct {
 }
 
 func absFilePath(p string) string {
+	if p == "" {
+		return p
+	}
 	if strings.HasPrefix(p, "~/") {
 		usr, err := user.Current()
 		if err != nil {
