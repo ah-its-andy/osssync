@@ -2,7 +2,6 @@ package core
 
 import (
 	"crypto/md5"
-	"fmt"
 	"hash/crc64"
 	"io"
 	"os"
@@ -36,7 +35,6 @@ type PhysicalFileInfo struct {
 	statInfo os.FileInfo
 	exists   bool
 	isIdle   bool
-	file     *os.File
 
 	md5       []byte
 	md5Base58 string
@@ -77,10 +75,11 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	return fileInfo, nil
 }
 
+func (fileInfo *PhysicalFileInfo) openFile(flag int) (*os.File, error) {
+	return os.OpenFile(filepath.Join(fileInfo.Path(), fileInfo.Name()), flag, 0)
+}
+
 func (fileInfo *PhysicalFileInfo) Close() error {
-	if fileInfo.file != nil {
-		return fileInfo.file.Close()
-	}
 	return nil
 }
 
@@ -106,38 +105,14 @@ func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
 }
 
 func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
-	err := fileInfo.open()
+	file, err := fileInfo.openFile(os.O_RDWR)
 	if err != nil {
 		return nil, tracing.Error(err)
 	}
 	return &PhysicalFileStream{
-		f:    fileInfo.file,
+		f:    file,
 		stat: fileInfo.statInfo,
 	}, nil
-}
-
-func (fileInfo *PhysicalFileInfo) open() error {
-	if fileInfo.isIdle {
-		exists, _ := fileInfo.Exists()
-		if exists {
-			file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
-			if err != nil {
-				return tracing.Error(err)
-			}
-			fileInfo.file = file
-		} else {
-			file, err := os.Create(filepath.Join(fileInfo.Path(), fileInfo.Name()))
-			if err != nil {
-				return tracing.Error(err)
-			}
-			fileInfo.file = file
-		}
-
-		fileInfo.isIdle = false
-		return nil
-	} else {
-		return fmt.Errorf("file is buzy")
-	}
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
@@ -157,17 +132,14 @@ func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
 				break
 			}
 			return tracing.Error(err)
-			break
 		}
 		_, err = md5.Write(buffer[:n])
 		if err != nil {
 			return tracing.Error(err)
-			break
 		}
 		_, err = CRC64.Write(buffer[:n])
 		if err != nil {
 			return tracing.Error(err)
-			break
 		}
 
 	}

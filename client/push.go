@@ -18,12 +18,7 @@ var ErrObjectExists error = fmt.Errorf("object exists")
 var ErrSyncedAlready error = fmt.Errorf("synced already")
 
 func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
-	targetFileInfo, err := core.GetFile(filepath.Join(destPath, src.Name()))
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	targetExists, err := targetFileInfo.Exists()
+	dest, err := core.GetFile(filepath.Join(destPath, src.Name()))
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -33,24 +28,27 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
-	if targetExists {
-		targetCRC64, err := targetFileInfo.CRC64()
+	targetCRC64, err := dest.CRC64()
+	if err != nil {
+		return tracing.Error(err)
+	}
+	if targetCRC64 == CRC64 {
+		return ErrObjectExists
+	} else {
+		err = dest.Remove()
 		if err != nil {
 			return tracing.Error(err)
 		}
-		if uint64(targetCRC64) == CRC64 {
-			return ErrObjectExists
-		} else {
-			err = targetFileInfo.Remove()
-			if err != nil {
-				return tracing.Error(err)
-			}
+		targetFileInfo, err := core.GetFile(filepath.Join(destPath, src.Name()))
+		if err != nil {
+			return tracing.Error(err)
 		}
+		dest = targetFileInfo
 	}
 
-	targetFileInfo.Properties()[core.PropertyName_ContentCRC64] = strconv.FormatUint(CRC64, 10)
+	dest.Properties()[core.PropertyName_ContentCRC64] = strconv.FormatUint(CRC64, 10)
 
-	fs, err := targetFileInfo.Stream()
+	fs, err := dest.Stream()
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -64,24 +62,18 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 	fileSize := src.Size()
 	chunkSizeMb := int64(config.GetValueOrDefault[float64](core.Arg_ChunkSizeMb, 5))
 	chunkSize := chunkSizeMb * 1024 * 1024
-	salt := []byte(config.RequireString(core.Arg_Salt))
 	if chunkSize > fileSize {
 		var bufWriter core.FileWriter
-		if len(salt) > 0 {
-			cryptoWriter, err := core.NewCryptoFileWriter(fs, fileSize, int64(CRC64),
-				core.CryptoOptions{
-					Salt: []byte(config.RequireString(core.Arg_Salt)),
-				})
-			if err != nil {
-				return tracing.Error(err)
-			}
-			bufWriter = cryptoWriter
-		} else {
-			bufWriter = fs
-		}
+		bufWriter = fs
 		defer bufWriter.Close()
-		_, err = io.Copy(bufWriter, srcFs)
-		if err != nil {
+		destBuffer := make([]byte, fileSize)
+		n, err := srcFs.Read(destBuffer)
+		// _, err = io.Copy(bufWriter, srcFs)
+		if n == 0 || err != nil {
+			return tracing.Error(err)
+		}
+		n, err = bufWriter.Write(destBuffer)
+		if n == 0 || err != nil {
 			return tracing.Error(err)
 		}
 		err = bufWriter.Flush()
@@ -91,22 +83,11 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 	} else {
 		// chunk writes
 		var chunks []core.FileChunkWriter
-		if len(salt) > 0 {
-			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, fileSize, chunkSize, int64(CRC64),
-				core.CryptoOptions{
-					Salt: []byte(config.RequireString(core.Arg_Salt)),
-				})
-			if err != nil {
-				return tracing.Error(err)
-			}
-			chunks = cryptoChunks
-		} else {
-			streamChunks, err := fs.ChunkWrites(src.Size(), chunkSize)
-			if err != nil {
-				return tracing.Error(err)
-			}
-			chunks = streamChunks
+		streamChunks, err := fs.ChunkWrites(src.Size(), chunkSize)
+		if err != nil {
+			return tracing.Error(err)
 		}
+		chunks = streamChunks
 
 		_, err = srcFs.Seek(0, io.SeekStart)
 		if err != nil {
@@ -142,7 +123,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 	}
 
-	if err = CheckCRC64(src, targetFileInfo); err != nil {
+	if err = CheckCRC64(src, dest); err != nil {
 		logging.Warn(err.Error(), nil)
 	}
 

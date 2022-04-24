@@ -57,12 +57,12 @@ func (stream *PhysicalFileStream) Size() int64 {
 }
 
 func (stream *PhysicalFileStream) Write(p []byte) (n int, err error) {
-	_, err = stream.f.WriteAt(p, stream.offset)
+	n, err = stream.f.WriteAt(p, stream.offset)
 	if err != nil {
 		return 0, err
 	}
 	stream.offset += int64(len(p))
-	return len(p), nil
+	return n, nil
 }
 
 func (stream *PhysicalFileStream) Flush() error {
@@ -78,12 +78,12 @@ func (stream *PhysicalFileStream) Seek(offset int64, whence int) (int64, error) 
 }
 
 func (stream *PhysicalFileStream) Read(p []byte) (n int, err error) {
-	_, err = stream.f.ReadAt(p, stream.readOffset)
+	n, err = stream.f.ReadAt(p, stream.readOffset)
 	if err != nil {
 		return 0, err
 	}
 	stream.readOffset += int64(len(p))
-	return len(p), nil
+	return n, nil
 }
 
 func (stream *PhysicalFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]FileChunkWriter, error) {
