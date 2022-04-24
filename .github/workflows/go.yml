@@ -22,7 +22,7 @@ jobs:
       run: go mod tidy
       
     - name: Build
-      run: go build -v ./...
+      run: go build
       
     - name: Build docker image
       run: docker build . -t standardcore/osssync:1.0.${{ github.run_number }}
