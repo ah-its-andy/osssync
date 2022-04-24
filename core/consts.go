@@ -1,12 +1,14 @@
 package core
 
+import "fmt"
+
 type PropertyName string
 
 const (
 	PropertyName_ContentLength  PropertyName = "x-content-length"
 	PropertyName_ContentName    PropertyName = "x-content-name"
 	PropertyName_ContentMD5     PropertyName = "x-content-md5"
-	PropertyName_ContentCRC32   PropertyName = "x-content-crc32"
+	PropertyName_ContentCRC64   PropertyName = "x-content-CRC64"
 	PropertyName_ContentModTime PropertyName = "x-content-modtime"
 	PropertyName_ContentType    PropertyName = "x-content-type"
 )
@@ -28,3 +30,5 @@ const (
 	Arg_Salt            = "salt"
 	Arg_ChunkSizeMb     = "chunk_size_mb"
 )
+
+var ErrCRC64NotMatch error = fmt.Errorf("crc64 not match")

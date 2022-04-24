@@ -74,28 +74,38 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 			metaData:   make(map[PropertyName]string),
 		}, nil
 	}
-	metaHeader, err := bucket.GetObjectDetailedMeta(objectName)
-	if err != nil {
-		return nil, tracing.Error(err)
-	}
-	metaMap := make(map[PropertyName]string)
-	for k, v := range metaHeader {
-		metaMap[PropertyName(normalizeAliOSSMetaKey(k))] = v[0]
-	}
+
 	fileInfo := &AliOSSFileInfo{
 		bucketName: bucketName,
 		objectName: objectName,
 		exists:     true,
 		client:     client,
 		bucket:     bucket,
-		metaData:   metaMap,
+		metaData:   make(map[PropertyName]string),
 	}
-	if contentLength, ok := metaMap[PropertyName_ContentLength]; ok {
+	err = fileInfo.refreshMetaData()
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	if contentLength, ok := fileInfo.metaData[PropertyName_ContentLength]; ok {
 		if contentLengthInt, err := strconv.ParseInt(contentLength, 10, 32); err == nil {
 			fileInfo.contentLength = contentLengthInt
 		}
 	}
 	return fileInfo, nil
+}
+
+func (fileInfo *AliOSSFileInfo) refreshMetaData() error {
+	metaHeader, err := fileInfo.bucket.GetObjectDetailedMeta(fileInfo.objectName)
+	if err != nil {
+		return tracing.Error(err)
+	}
+	metaMap := make(map[PropertyName]string)
+	for k, v := range metaHeader {
+		metaMap[PropertyName(normalizeAliOSSMetaKey(k))] = v[0]
+	}
+	fileInfo.metaData = metaMap
+	return nil
 }
 
 func (fileInfo *AliOSSFileInfo) Close() error {
@@ -127,7 +137,7 @@ func (fileInfo *AliOSSFileInfo) Size() int64 {
 }
 
 func (fileInfo *AliOSSFileInfo) Stream() (FileStream, error) {
-	pushTags := []PropertyName{PropertyName_ContentCRC32, PropertyName_ContentLength, PropertyName_ContentMD5, PropertyName_ContentModTime}
+	pushTags := []PropertyName{PropertyName_ContentCRC64, PropertyName_ContentLength, PropertyName_ContentMD5, PropertyName_ContentModTime}
 	opts := make([]oss.Option, 0)
 	for k, v := range fileInfo.metaData {
 		for _, pushTag := range pushTags {
@@ -137,6 +147,7 @@ func (fileInfo *AliOSSFileInfo) Stream() (FileStream, error) {
 		}
 	}
 	return &AliOSSFileStream{
+		ossFile:       fileInfo,
 		client:        fileInfo.client,
 		bucket:        fileInfo.bucket,
 		bucketName:    fileInfo.bucketName,
@@ -155,10 +166,10 @@ func (fileInfo *AliOSSFileInfo) MD5() (string, error) {
 	}
 	return "", nil
 }
-func (fileInfo *AliOSSFileInfo) CRC32() (uint32, error) {
-	if crc32, ok := fileInfo.metaData[PropertyName_ContentCRC32]; ok {
-		if crc32Int, err := strconv.ParseUint(crc32, 10, 32); err == nil {
-			return uint32(crc32Int), nil
+func (fileInfo *AliOSSFileInfo) CRC64() (uint64, error) {
+	if CRC64, ok := fileInfo.metaData["x-oss-hash-crc64ecma"]; ok {
+		if CRC64Int, err := strconv.ParseUint(CRC64, 10, 64); err == nil {
+			return uint64(CRC64Int), nil
 		}
 	}
 	return 0, nil
@@ -180,6 +191,7 @@ type AliOSSFileStream struct {
 	objectName    string
 	contentLength int64
 	options       []oss.Option
+	ossFile       *AliOSSFileInfo
 
 	client      *oss.Client
 	bucket      *oss.Bucket
@@ -230,6 +242,12 @@ func (stream *AliOSSFileStream) Flush() error {
 			return tracing.Error(err)
 		}
 	}
+
+	err := stream.ossFile.refreshMetaData()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
 	return nil
 }
 

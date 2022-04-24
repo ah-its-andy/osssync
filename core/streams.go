@@ -175,19 +175,19 @@ type CryptoOptions struct {
 	Salt []byte
 }
 
-func GenerateCryptoHeader(chunkSize int64, algorithm int, blockSize int, iv []byte, crc32 int64) []byte {
+func GenerateCryptoHeader(chunkSize int64, algorithm int, blockSize int, iv []byte, CRC64 int64) []byte {
 	chunkSizeBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(chunkSizeBytes, uint64(chunkSize))
 	algorithmBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(algorithmBytes, uint32(algorithm))
 	blockSizeBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(blockSizeBytes, uint32(blockSize))
-	crc32Bytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(crc32Bytes, uint64(crc32))
+	CRC64Bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(CRC64Bytes, uint64(CRC64))
 	ivBytes := make([]byte, len(iv))
 	copy(ivBytes, iv)
 
-	headerSize := 4 + len(chunkSizeBytes) + len(algorithmBytes) + len(blockSizeBytes) + len(ivBytes) + len(crc32Bytes)
+	headerSize := 4 + len(chunkSizeBytes) + len(algorithmBytes) + len(blockSizeBytes) + len(ivBytes) + len(CRC64Bytes)
 	headerSizeBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(headerSizeBytes, uint32(headerSize))
 
@@ -205,7 +205,7 @@ func GenerateCryptoHeader(chunkSize int64, algorithm int, blockSize int, iv []by
 	return header
 }
 
-func GenerateCryptoChunkWrites(stream FileStream, size int64, chunkSize int64, crc32 int64, cryptoOptions CryptoOptions) ([]FileChunkWriter, error) {
+func GenerateCryptoChunkWrites(stream FileStream, size int64, chunkSize int64, CRC64 int64, cryptoOptions CryptoOptions) ([]FileChunkWriter, error) {
 	block, err := NewCipherBlock(cryptoOptions)
 	if err != nil {
 		return nil, err
@@ -216,7 +216,7 @@ func GenerateCryptoChunkWrites(stream FileStream, size int64, chunkSize int64, c
 		return nil, err
 	}
 
-	headerBuffer := GenerateCryptoHeader(chunkSize, 0, block.BlockSize(), iv, crc32)
+	headerBuffer := GenerateCryptoHeader(chunkSize, 0, block.BlockSize(), iv, CRC64)
 	headerSize := len(headerBuffer)
 
 	fileSize := size + int64(headerSize)
@@ -271,7 +271,7 @@ type CryptoFileWriter struct {
 	cryptoOpts CryptoOptions
 }
 
-func NewCryptoFileWriter(fw FileWriter, size int64, crc32 int64, cryptoOpts CryptoOptions) (*CryptoFileWriter, error) {
+func NewCryptoFileWriter(fw FileWriter, size int64, CRC64 int64, cryptoOpts CryptoOptions) (*CryptoFileWriter, error) {
 	block, err := NewCipherBlock(cryptoOpts)
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func NewCryptoFileWriter(fw FileWriter, size int64, crc32 int64, cryptoOpts Cryp
 		return nil, err
 	}
 
-	headerBuffer := GenerateCryptoHeader(0, 0, block.BlockSize(), iv, crc32)
+	headerBuffer := GenerateCryptoHeader(0, 0, block.BlockSize(), iv, CRC64)
 	headerSize := len(headerBuffer)
 	buffer := make([]byte, headerSize+int(size))
 	copy(buffer[0:], headerBuffer)

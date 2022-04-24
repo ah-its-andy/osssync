@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"github.com/sirupsen/logrus"
 )
@@ -215,6 +216,10 @@ func Write(level string, message string, err error, fields map[string]interface{
 
 func Error(err error, data map[string]interface{}) {
 	Write("error", "", err, data)
+}
+
+func Warn(message string, data map[string]interface{}) {
+	Write("warning", message, nil, data)
 }
 
 func Debug(message string, data map[string]interface{}) {

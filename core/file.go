@@ -3,7 +3,7 @@ package core
 import (
 	"crypto/md5"
 	"fmt"
-	"hash/crc32"
+	"hash/crc64"
 	"io"
 	"os"
 	"osssync/common/tracing"
@@ -23,7 +23,7 @@ type FileInfo interface {
 	Path() string
 	Size() int64
 	MD5() (string, error)
-	CRC32() (uint32, error)
+	CRC64() (uint64, error)
 	Exists() (bool, error)
 	Properties() map[PropertyName]string
 	Remove() error
@@ -41,7 +41,7 @@ type PhysicalFileInfo struct {
 	md5       []byte
 	md5Base58 string
 
-	crc32 uint32
+	crc64 uint64
 
 	hashOnce sync.Once
 }
@@ -73,11 +73,6 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	}
 	fileInfo.statInfo = statInfo
 	fileInfo.exists = true
-
-	err = fileInfo.ComputeHashOnce()
-	if err != nil {
-		return nil, tracing.Error(err)
-	}
 
 	return fileInfo, nil
 }
@@ -146,61 +141,63 @@ func (fileInfo *PhysicalFileInfo) open() error {
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
-	var errOutter error
-
-	fileInfo.hashOnce.Do(func() {
-		file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
-		if err != nil {
-			errOutter = tracing.Error(err)
-		}
-		defer file.Close()
-		bufferSize := 1024 * 1024
-		buffer := make([]byte, bufferSize)
-		md5 := md5.New()
-		crc32 := crc32.New(crc32.IEEETable)
-		for {
-			n, err := file.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				errOutter = tracing.Error(err)
-				break
-			}
-			_, err = md5.Write(buffer[:n])
-			if err != nil {
-				errOutter = tracing.Error(err)
-				break
-			}
-			_, err = crc32.Write(buffer[:n])
-			if err != nil {
-				errOutter = tracing.Error(err)
-				break
-			}
-
-		}
-		fileInfo.md5 = md5.Sum(nil)
-		fileInfo.md5Base58 = base58.Encode(fileInfo.md5)
-		fileInfo.crc32 = crc32.Sum32()
-	})
-	if errOutter != nil {
-		return errOutter
+	file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+	if err != nil {
+		return tracing.Error(err)
 	}
+	defer file.Close()
+	bufferSize := 1024 * 1024
+	buffer := make([]byte, bufferSize)
+	md5 := md5.New()
+	CRC64 := crc64.New(crc64.MakeTable(crc64.ECMA))
+	for {
+		n, err := file.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return tracing.Error(err)
+			break
+		}
+		_, err = md5.Write(buffer[:n])
+		if err != nil {
+			return tracing.Error(err)
+			break
+		}
+		_, err = CRC64.Write(buffer[:n])
+		if err != nil {
+			return tracing.Error(err)
+			break
+		}
+
+	}
+	fileInfo.md5 = md5.Sum(nil)
+	fileInfo.md5Base58 = base58.Encode(fileInfo.md5)
+	fileInfo.crc64 = CRC64.Sum64()
 	return nil
 }
 
 func (fileInfo *PhysicalFileInfo) MD5() (string, error) {
+	err := fileInfo.ComputeHashOnce()
+	if err != nil {
+		return "", tracing.Error(err)
+	}
+
 	return fileInfo.md5Base58, nil
 }
 
-func (fileInfo *PhysicalFileInfo) CRC32() (uint32, error) {
-	return fileInfo.crc32, nil
+func (fileInfo *PhysicalFileInfo) CRC64() (uint64, error) {
+	err := fileInfo.ComputeHashOnce()
+	if err != nil {
+		return 0, tracing.Error(err)
+	}
+	return fileInfo.crc64, nil
 }
 func (fileInfo *PhysicalFileInfo) Properties() map[PropertyName]string {
 	properties := map[PropertyName]string{
 		PropertyName_ContentType:    "application/octet-stream",
 		PropertyName_ContentMD5:     fileInfo.md5Base58,
-		PropertyName_ContentCRC32:   strconv.FormatUint(uint64(fileInfo.crc32), 10),
+		PropertyName_ContentCRC64:   strconv.FormatUint(uint64(fileInfo.crc64), 10),
 		PropertyName_ContentName:    "",
 		PropertyName_ContentModTime: "",
 		PropertyName_ContentLength:  "0",

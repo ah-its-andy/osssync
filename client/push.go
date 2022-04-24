@@ -5,13 +5,11 @@ import (
 	"io"
 	"os"
 	"osssync/common/config"
-	"osssync/common/dataAccess/nosqlite"
 	"osssync/common/logging"
 	"osssync/common/tracing"
 	"osssync/core"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -20,41 +18,6 @@ var ErrObjectExists error = fmt.Errorf("object exists")
 var ErrSyncedAlready error = fmt.Errorf("synced already")
 
 func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
-	err := IndexFile(src, fullIndex)
-	if err != nil {
-		if !tracing.IsError(err, ErrIndexedAlready) {
-			return tracing.Error(err)
-		}
-	}
-
-	// crc32, err := src.CRC32()
-	// if err != nil {
-	// 	return tracing.Error(err)
-	// }
-	// crc32Str := strconv.FormatInt(int64(crc32), 10)
-
-	indexedName, err := GetIndexName(src)
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	indexedModel, err := nosqlite.Get[ObjectIndexModel](indexedName)
-	if err != nil {
-		return tracing.Error(err)
-	}
-
-	synces := make([]string, 0)
-	if indexedModel.Synced != "" {
-		synces = strings.Split(indexedModel.Synced, ",")
-	}
-
-	destFileType := core.ResolveUriType(destPath)
-	for _, s := range synces {
-		if s == string(destFileType) {
-			return ErrSyncedAlready
-		}
-	}
-
 	targetFileInfo, err := core.GetFile(filepath.Join(destPath, src.Name()))
 	if err != nil {
 		return tracing.Error(err)
@@ -65,17 +28,17 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
-	crc32, err := strconv.ParseInt(indexedModel.CRC32, 10, 64)
+	CRC64, err := src.CRC64()
 	if err != nil {
 		return tracing.Error(err)
 	}
 
 	if targetExists {
-		targetCrc32, err := targetFileInfo.CRC32()
+		targetCRC64, err := targetFileInfo.CRC64()
 		if err != nil {
 			return tracing.Error(err)
 		}
-		if int64(targetCrc32) == crc32 {
+		if uint64(targetCRC64) == CRC64 {
 			return ErrObjectExists
 		} else {
 			err = targetFileInfo.Remove()
@@ -85,7 +48,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 	}
 
-	targetFileInfo.Properties()[core.PropertyName_ContentCRC32] = indexedModel.CRC32
+	targetFileInfo.Properties()[core.PropertyName_ContentCRC64] = strconv.FormatUint(CRC64, 10)
 
 	fs, err := targetFileInfo.Stream()
 	if err != nil {
@@ -105,7 +68,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 	if chunkSize > fileSize {
 		var bufWriter core.FileWriter
 		if len(salt) > 0 {
-			cryptoWriter, err := core.NewCryptoFileWriter(fs, fileSize, int64(crc32),
+			cryptoWriter, err := core.NewCryptoFileWriter(fs, fileSize, int64(CRC64),
 				core.CryptoOptions{
 					Salt: []byte(config.RequireString(core.Arg_Salt)),
 				})
@@ -129,7 +92,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		// chunk writes
 		var chunks []core.FileChunkWriter
 		if len(salt) > 0 {
-			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, fileSize, chunkSize, int64(crc32),
+			cryptoChunks, err := core.GenerateCryptoChunkWrites(fs, fileSize, chunkSize, int64(CRC64),
 				core.CryptoOptions{
 					Salt: []byte(config.RequireString(core.Arg_Salt)),
 				})
@@ -163,13 +126,6 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 				return tracing.Error(err)
 			}
 
-			// if err != io.EOF {
-			// 	_, err = srcFs.Seek(chunkSize, io.SeekCurrent)
-			// 	if err != nil {
-			// 		return tracing.Error(err)
-			// 	}
-			// }
-
 			_, err = chunk.Write(tmp)
 			if err != nil {
 				return tracing.Error(err)
@@ -186,11 +142,8 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 	}
 
-	synces = append(synces, string(destFileType))
-	indexedModel.Synced = strings.Join(synces, ",")
-	err = nosqlite.Set(indexedModel.Name, indexedModel)
-	if err != nil {
-		return tracing.Error(err)
+	if err = CheckCRC64(src, targetFileInfo); err != nil {
+		logging.Warn(err.Error(), nil)
 	}
 
 	return nil

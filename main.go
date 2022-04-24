@@ -19,7 +19,7 @@ func main() {
 	flag.StringVar(&args.CredentialsFile, "credentials", "", "credentials file")
 	//flag.BoolVar(&args.IndexOnly, "indexOnly", false, "only index files")
 	flag.BoolVar(&args.FullIndex, "fullIndex", false, "full index")
-	flag.StringVar(&args.Salt, "salt", "", "salt")
+	//flag.StringVar(&args.Salt, "salt", "", "salt")
 	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
 	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
 	flag.Parse()

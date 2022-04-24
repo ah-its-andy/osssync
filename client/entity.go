@@ -8,7 +8,7 @@ type ObjectIndexModel struct {
 	Size     int64  `json:"size"`
 	Synced   string `json:"synced"`
 
-	CRC32 string `json:"crc32"`
+	CRC64 string `json:"crc64"`
 	MD5   string `json:"md5"`
 }
 

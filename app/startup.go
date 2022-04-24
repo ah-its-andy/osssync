@@ -75,8 +75,6 @@ func Run() error {
 	if statInfo.IsDir() {
 		operation := config.RequireString(core.Arg_Operation)
 		switch operation {
-		case "index":
-			return client.IndexDir(sourcePath, config.RequireValue[bool](core.Arg_FullIndex))
 
 		case "push":
 			return client.PushDir(sourcePath,
