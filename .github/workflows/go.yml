@@ -1,0 +1,40 @@
+name: Go
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.18
+
+    - name: Resolve deps
+      run: go mod tidy
+      
+    - name: Build
+      run: go build
+      
+    - name: Build docker image
+      run: docker build . -t standardcore/osssync:1.0.${{ github.run_number }}
+         
+    - name: Docker login
+      run: echo ${{ secrets.DOCKER_PASSWORD }}  | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
+      
+    - name: Docker push
+      run: docker push standardcore/osssync:1.0.${{ github.run_number }}
+      
+    - name: Tag latest
+      run: docker tag standardcore/osssync:1.0.${{ github.run_number }} standardcore/osssync:latest
+      
+    - name: Push latest tag
+      run: docker push standardcore/osssync:latest
