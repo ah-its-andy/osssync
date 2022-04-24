@@ -1,6 +1,8 @@
 package client
 
 import (
+	"fmt"
+	"osssync/common/logging"
 	"osssync/common/tracing"
 	"osssync/core"
 )
@@ -20,5 +22,6 @@ func CheckCRC64(src core.FileInfo, dest core.FileInfo) error {
 		return tracing.Error(core.ErrCRC64NotMatch)
 	}
 
+	logging.Debug(fmt.Sprintf("CRC64 check passed: %s", src.Name()), nil)
 	return nil
 }

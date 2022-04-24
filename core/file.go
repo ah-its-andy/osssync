@@ -17,6 +17,7 @@ import (
 type FileInfo interface {
 	io.Closer
 
+	FileType() string
 	Name() string
 	Path() string
 	Size() int64
@@ -72,6 +73,10 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 	fileInfo.exists = true
 
 	return fileInfo, nil
+}
+
+func (fileInfo *PhysicalFileInfo) FileType() string {
+	return string(FileType_Physical)
 }
 
 func (fileInfo *PhysicalFileInfo) openFile(flag int) (*os.File, error) {

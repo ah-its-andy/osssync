@@ -95,6 +95,10 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectName string) (File
 	return fileInfo, nil
 }
 
+func (fileInfo *AliOSSFileInfo) FileType() string {
+	return string(FileType_AliOSS)
+}
+
 func (fileInfo *AliOSSFileInfo) refreshMetaData() error {
 	metaHeader, err := fileInfo.bucket.GetObjectDetailedMeta(fileInfo.objectName)
 	if err != nil {

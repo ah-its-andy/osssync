@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"osssync/common/config"
+	"osssync/common/dataAccess/nosqlite"
 	"osssync/common/logging"
 	"osssync/common/tracing"
 	"osssync/core"
@@ -17,6 +18,16 @@ var ErrObjectExists error = fmt.Errorf("object exists")
 var ErrSyncedAlready error = fmt.Errorf("synced already")
 
 func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
+	fileIndex, err := FindFileIndex(src)
+	if err != nil && !tracing.IsError(err, nosqlite.ErrRecordNotFound) {
+		return tracing.Error(err)
+	}
+
+	if fileIndex != nil && !config.GetValueOrDefault[bool](core.Arg_FullIndex, false) {
+		logging.Info(fmt.Sprintf("File %s had been indexed already", src.Name()), nil)
+		return nil
+	}
+
 	dest, err := core.GetFile(core.JoinUri(destPath, src.Name()))
 	if err != nil {
 		return tracing.Error(err)
@@ -27,22 +38,33 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
-	targetCRC64, err := dest.CRC64()
+	defer SetIndexModel(src, dest, CRC64)
+
+	destExists, err := dest.Exists()
 	if err != nil {
 		return tracing.Error(err)
 	}
-	if targetCRC64 == CRC64 {
-		return ErrObjectExists
-	} else {
-		err = dest.Remove()
+
+	if destExists {
+		targetCRC64, err := dest.CRC64()
 		if err != nil {
 			return tracing.Error(err)
 		}
-		targetFileInfo, err := core.GetFile(core.JoinUri(destPath, src.Name()))
-		if err != nil {
-			return tracing.Error(err)
+		if targetCRC64 == CRC64 {
+			logging.Info(fmt.Sprintf("File %s has been synced already", src.Name()), nil)
+			return nil
+			//return ErrObjectExists
+		} else {
+			err = dest.Remove()
+			if err != nil {
+				return tracing.Error(err)
+			}
+			targetFileInfo, err := core.GetFile(core.JoinUri(destPath, src.Name()))
+			if err != nil {
+				return tracing.Error(err)
+			}
+			dest = targetFileInfo
 		}
-		dest = targetFileInfo
 	}
 
 	dest.Properties()[core.PropertyName_ContentCRC64] = strconv.FormatUint(CRC64, 10)
@@ -124,6 +146,10 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 
 	if err = CheckCRC64(src, dest); err != nil {
 		logging.Warn(err.Error(), nil)
+	}
+
+	if fileIndex == nil {
+		fileIndex = &ObjectIndexModel{}
 	}
 
 	return nil

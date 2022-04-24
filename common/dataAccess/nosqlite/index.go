@@ -95,7 +95,7 @@ func SetIndex[T NoSqliteEntity](db *sql.Tx, objId string, name string, value str
 	if err != nil {
 		if tracing.IsError(err, ErrRecordNotFound) {
 			sql = fmt.Sprintf(`INSERT INTO "%s_dyanmicidx" ("id", "object_id", "field_name", "field_value") VALUES (?, ?, ?, ?)`, tableName)
-			args = []interface{}{GenerateUUID, objId, name, value}
+			args = []interface{}{GenerateUUID(), objId, name, value}
 		}
 		return tracing.Error(err)
 	}
@@ -108,7 +108,7 @@ func SetIndex[T NoSqliteEntity](db *sql.Tx, objId string, name string, value str
 
 	if index == nil {
 		sql = fmt.Sprintf(`INSERT INTO "%s_dyanmicidx" ("id", "object_id", "field_name", "field_value") VALUES (?, ?, ?, ?)`, tableName)
-		args = []interface{}{GenerateUUID, objId, name, value}
+		args = []interface{}{GenerateUUID(), objId, name, value}
 	} else {
 		sql = fmt.Sprintf(`UPDATE "%s_dyanmicidx" SET "field_value" = ? WHERE "id" = ?`, tableName)
 		args = []interface{}{value, index.ID}

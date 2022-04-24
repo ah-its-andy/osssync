@@ -44,11 +44,7 @@ func ResolveRelativePath(uri string) (string, error) {
 	if indexOf == -1 {
 		return "", fmt.Errorf("invalid uri: %s", uri)
 	}
-	lastIndexOf := strings.LastIndex(uri[indexOf+3:], "/")
-
-	if lastIndexOf == -1 {
-		return "", fmt.Errorf("invalid uri: %s", uri)
-	}
-
-	return uri[indexOf+3+lastIndexOf+1:], nil
+	path := uri[indexOf+3:]
+	indexOf2 := strings.Index(path, "/")
+	return uri[indexOf+indexOf2+4:], nil
 }

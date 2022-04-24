@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"osssync/common/tracing"
 	"strings"
+	"sync"
 )
 
 var ErrRecordNotFound error = errors.New("record not found")
+var createTableLock = &sync.Mutex{}
 
 func IfNoRows(err error) bool {
 	return "sql: no rows in result set" == err.Error()
 }
 
 func CreateTableIfNotExists[T NoSqliteEntity]() error {
+	createTableLock.Lock()
+	defer createTableLock.Unlock()
 	fake := *new(T)
 	db, err := Factory.CreateConnection(context.Background())
 	if err != nil {
