@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"osssync/common/tracing"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,7 +75,7 @@ func OpenPhysicalFile(filePath string) (FileInfo, error) {
 }
 
 func (fileInfo *PhysicalFileInfo) openFile(flag int) (*os.File, error) {
-	return os.OpenFile(filepath.Join(fileInfo.Path(), fileInfo.Name()), flag, 0)
+	return os.OpenFile(JoinUri(fileInfo.Path(), fileInfo.Name()), flag, 0)
 }
 
 func (fileInfo *PhysicalFileInfo) Close() error {
@@ -94,7 +93,7 @@ func (fileInfo *PhysicalFileInfo) Size() int64 {
 }
 
 func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
-	_, err := os.Stat(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+	_, err := os.Stat(JoinUri(fileInfo.Path(), fileInfo.Name()))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -116,7 +115,7 @@ func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {
-	file, err := os.Open(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+	file, err := os.Open(JoinUri(fileInfo.Path(), fileInfo.Name()))
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -184,5 +183,5 @@ func (fileInfo *PhysicalFileInfo) Properties() map[PropertyName]string {
 	return properties
 }
 func (fileInfo *PhysicalFileInfo) Remove() error {
-	return os.Remove(filepath.Join(fileInfo.Path(), fileInfo.Name()))
+	return os.Remove(JoinUri(fileInfo.Path(), fileInfo.Name()))
 }

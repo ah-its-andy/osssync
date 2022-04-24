@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+func JoinUri(a ...string) string {
+	parts := make([]string, len(a))
+	for i, part := range a {
+		p := part
+		if i > 0 {
+			p = strings.TrimPrefix(p, "/")
+		}
+		p = strings.TrimSuffix(p, "/")
+		parts[i] = p
+	}
+	return strings.Join(parts, "/")
+}
+
 func ResolveUriType(uri string) FileType {
 	if strings.HasPrefix(uri, "oss://") {
 		return FileType_AliOSS

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net/url"
 	"os/user"
 	"osssync/app"
 	"osssync/common/config"
@@ -49,7 +50,8 @@ func main() {
 	}
 
 	if args.DestPath != "" {
-		config.AttachValue(core.Arg_DestPath, absFilePath(args.DestPath))
+		decodePath, _ := url.QueryUnescape(args.DestPath)
+		config.AttachValue(core.Arg_DestPath, decodePath)
 	}
 
 	config.AttachValue(core.Arg_Operation, args.Operation)

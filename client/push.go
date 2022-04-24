@@ -8,7 +8,6 @@ import (
 	"osssync/common/logging"
 	"osssync/common/tracing"
 	"osssync/core"
-	"path/filepath"
 	"strconv"
 	"sync"
 )
@@ -18,7 +17,7 @@ var ErrObjectExists error = fmt.Errorf("object exists")
 var ErrSyncedAlready error = fmt.Errorf("synced already")
 
 func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
-	dest, err := core.GetFile(filepath.Join(destPath, src.Name()))
+	dest, err := core.GetFile(core.JoinUri(destPath, src.Name()))
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -39,7 +38,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		if err != nil {
 			return tracing.Error(err)
 		}
-		targetFileInfo, err := core.GetFile(filepath.Join(destPath, src.Name()))
+		targetFileInfo, err := core.GetFile(core.JoinUri(destPath, src.Name()))
 		if err != nil {
 			return tracing.Error(err)
 		}
@@ -95,7 +94,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		}
 		for _, chunk := range chunks {
 			offset := chunkSize * (chunk.Number() - 1)
-			bufferSize := chunkSize - chunk.Offset()
+			bufferSize := chunkSize
 			if offset+chunkSize > fileSize {
 				bufferSize = fileSize - offset
 			}
@@ -138,9 +137,9 @@ func PushDir(path string, destPath string, fullIndex bool) error {
 	var wg sync.WaitGroup
 	for _, rd := range rds {
 		if rd.IsDir() {
-			return PushDir(filepath.Join(path, rd.Name()), destPath, fullIndex)
+			return PushDir(core.JoinUri(path, rd.Name()), destPath, fullIndex)
 		}
-		srcFileInfo, err := core.GetFile(filepath.Join(path, rd.Name()))
+		srcFileInfo, err := core.GetFile(core.JoinUri(path, rd.Name()))
 		if err != nil {
 			return tracing.Error(err)
 		}

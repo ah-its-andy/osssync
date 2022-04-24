@@ -38,7 +38,7 @@ func Startup() error {
 	dbPath, _ := config.GetString("db.path")
 	if dbPath == "" {
 		dbPath, _ = filepath.Abs("./")
-		dbPath = filepath.Join(dbPath, "osssync.db")
+		dbPath = core.JoinUri(dbPath, "osssync.db")
 		logging.Info(fmt.Sprintf("db path not found, use default: %s", dbPath), nil)
 	} else {
 		if !filepath.IsAbs(dbPath) {
@@ -61,15 +61,6 @@ func Run() error {
 			return fmt.Errorf("source path not found: %s", sourcePath)
 		}
 		return tracing.Error(err)
-	}
-
-	_, err = os.Stat(destPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			os.MkdirAll(destPath, 0755)
-		} else {
-			return tracing.Error(err)
-		}
 	}
 
 	if statInfo.IsDir() {
