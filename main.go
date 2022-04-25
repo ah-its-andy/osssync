@@ -22,6 +22,7 @@ func main() {
 	//flag.StringVar(&args.Salt, "salt", "", "salt")
 	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
 	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
+	flag.StringVar(&args.DbPath, "db", "", "db path")
 	flag.Parse()
 
 	config.AttachValue(core.Arg_SourcePath, absFilePath(args.SourcePath))
@@ -32,6 +33,7 @@ func main() {
 	config.AttachValue(core.Arg_Operation, args.Operation)
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
+	config.AttachValue(core.Arg_DbPath, args.DbPath)
 
 	if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
 		panic("source path is required")
@@ -66,6 +68,8 @@ type Args struct {
 
 	Operation string
 	Daemon    bool
+
+	DbPath string
 }
 
 func absFilePath(p string) string {

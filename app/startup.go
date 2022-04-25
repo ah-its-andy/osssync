@@ -35,7 +35,7 @@ func Startup() error {
 	}
 
 	logging.Init()
-	dbPath, _ := config.GetString("db.path")
+	dbPath, _ := config.GetString(core.Arg_DbPath)
 	if dbPath == "" {
 		dbPath, _ = filepath.Abs("./")
 		dbPath = core.JoinUri(dbPath, "osssync.db")
