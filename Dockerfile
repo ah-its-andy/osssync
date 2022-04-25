@@ -6,10 +6,12 @@ ENV OSY_SOURCE_PATH "/osssync/data"
 ENV OSY_CHUNK_SIZE_MB "5"
 ENV OSY_OPERATION "push"
 ENV OSY_FULL_INDEX "false"
+ENV OSY_CREDENTIALS "/osssync/config/credential.yaml"
+ENV OSY_DB_PATH "/osssync/indexes/db"
 
 ENV OSY_CONFIG_PATH ""
 ENV OSY_DEST_PATH ""
-ENV OSY_CREDENTIALS ""
+
 ENV OSY_CRON ""
 
 COPY ./osssync /osssync/bin/osssync
