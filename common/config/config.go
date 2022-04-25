@@ -21,6 +21,13 @@ var rootPath string
 var data map[string]interface{}
 var initDataOnce sync.Once
 
+func Print() {
+	fmt.Println("-------- config --------")
+	for k, v := range data {
+		fmt.Printf("%s: %v\n", k, v)
+	}
+}
+
 func SetRootPath(path string) {
 	rootPath = path
 }

@@ -48,6 +48,9 @@ func main() {
 		panic(err)
 	}
 
+	// print config
+	config.Print()
+
 	err = app.Run()
 	if err != nil {
 		panic(err)
