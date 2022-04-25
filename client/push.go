@@ -176,7 +176,11 @@ func PushDir(path string, destPath string, fullIndex bool) error {
 		if rd.IsDir() {
 			subPath := core.JoinUri(path, rd.Name())
 			logging.Info(fmt.Sprintf("Enter directory %s", subPath), nil)
-			return PushDir(subPath, destPath, fullIndex)
+			err = PushDir(subPath, destPath, fullIndex)
+			if err != nil {
+				return tracing.Error(err)
+			}
+			continue
 		}
 		filePath := core.JoinUri(path, rd.Name())
 		relativePath := strings.TrimPrefix(filePath, sourcePath)
