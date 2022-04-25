@@ -55,6 +55,15 @@ func Startup() error {
 }
 
 func Run() error {
+	operation := config.RequireString(core.Arg_Operation)
+	if operation == "generateKey" {
+		_, err := core.PrintMnemonic()
+		if err != nil {
+			return tracing.Error(err)
+		}
+		return nil
+	}
+
 	sourcePath := config.RequireString(core.Arg_SourcePath)
 	destPath := config.GetStringOrDefault(core.Arg_DestPath, "")
 	statInfo, err := os.Stat(sourcePath)
@@ -66,7 +75,6 @@ func Run() error {
 	}
 
 	if statInfo.IsDir() {
-		operation := config.RequireString(core.Arg_Operation)
 		switch operation {
 
 		case "push":

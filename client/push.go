@@ -173,6 +173,11 @@ func PushDir(path string, destPath string, fullIndex bool) error {
 	sourcePath := config.RequireString(core.Arg_SourcePath)
 	var wg sync.WaitGroup
 	for _, rd := range rds {
+		rdName := rd.Name()
+		if strings.HasPrefix(rdName, ".") {
+			logging.Info(fmt.Sprintf("Ignore file %s", rdName), nil)
+			continue
+		}
 		if rd.IsDir() {
 			subPath := core.JoinUri(path, rd.Name())
 			logging.Info(fmt.Sprintf("Enter directory %s", subPath), nil)

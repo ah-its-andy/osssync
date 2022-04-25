@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
+	osscrypto "github.com/aliyun/aliyun-oss-go-sdk/oss/crypto"
 )
 
 type AliOSSCfgWrapper struct {
@@ -44,6 +45,10 @@ type AliOSSFileInfo struct {
 
 	client *oss.Client
 	bucket *oss.Bucket
+
+	cryptoFile   bool
+	mnemonic     []byte
+	cryptoBucket *osscrypto.CryptoBucket
 }
 
 func normalizeAliOSSMetaKey(k string) string {
@@ -97,6 +102,47 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectDir string, relati
 		}
 	}
 	return fileInfo, nil
+}
+
+func (fileInfo *AliOSSFileInfo) UseEncryption(mnemonic string) error {
+	// 创建一个主密钥的描述信息，创建后不允许修改。主密钥描述信息和主密钥一一对应。
+	// 如果所有的Object都使用相同的主密钥，主密钥描述信息可以为空，但后续不支持更换主密钥。
+	// 如果主密钥描述信息为空，解密时无法判断使用的是哪个主密钥。
+	// 强烈建议为每个主密钥都配置主密钥描述信息(json字符串), 由客户端保存主密钥和描述信息之间的对应关系（服务端不保存两者之间的对应关系）。
+
+	// 由主密钥描述信息(json字符串)转换的map。
+	materialDesc := make(map[string]string)
+	materialDesc["desc"] = "mnemonic"
+
+	// 创建一个主密钥。
+	masterPrivateKey, err := GenerateRsaKey(mnemonic)
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	pubK, err := GetPublicKeyPEM(masterPrivateKey)
+	if err != nil {
+		return tracing.Error(err)
+	}
+	privK := GetPrivateKeyPEM(masterPrivateKey)
+	// 根据主密钥描述信息创建一个主密钥对象。
+	masterRsaCipher, err := osscrypto.CreateMasterRsa(materialDesc, string(pubK), string(privK))
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	// 根据主密钥对象创建一个用于加密的接口, 使用aes ctr模式加密。
+	contentProvider := osscrypto.CreateAesCtrCipher(masterRsaCipher)
+
+	// 获取一个用于客户端加密的已创建bucket。
+	// 客户端加密bucket和普通bucket具有相似的用法。
+	cryptoBucket, err := osscrypto.GetCryptoBucket(fileInfo.client, fileInfo.bucketName, contentProvider)
+	if err != nil {
+		return tracing.Error(err)
+	}
+	fileInfo.cryptoBucket = cryptoBucket
+	fileInfo.cryptoFile = true
+	return nil
 }
 
 func (fileInfo *AliOSSFileInfo) FileType() string {
@@ -205,10 +251,12 @@ type AliOSSFileStream struct {
 	options       []oss.Option
 	ossFile       *AliOSSFileInfo
 
-	client      *oss.Client
-	bucket      *oss.Bucket
-	imur        oss.InitiateMultipartUploadResult
-	uploadParts []oss.UploadPart
+	client         *oss.Client
+	bucket         *oss.Bucket
+	isCryptpStream bool
+	cryptoBucket   *osscrypto.CryptoBucket
+	imur           oss.InitiateMultipartUploadResult
+	uploadParts    []oss.UploadPart
 
 	buffer []byte
 	offset int64
@@ -242,6 +290,26 @@ func (stream *AliOSSFileStream) Write(p []byte) (n int, err error) {
 }
 
 func (stream *AliOSSFileStream) Flush() error {
+	if stream.isCryptpStream {
+		err := stream.flushToCryptoBucket()
+		if err != nil {
+			return tracing.Error(err)
+		}
+	} else {
+		err := stream.flushToBucket()
+		if err != nil {
+			return tracing.Error(err)
+		}
+	}
+	err := stream.ossFile.refreshMetaData()
+	if err != nil {
+		return tracing.Error(err)
+	}
+
+	return nil
+}
+
+func (stream *AliOSSFileStream) flushToBucket() error {
 	if len(stream.uploadParts) == 0 {
 		err := stream.bucket.PutObject(stream.objectName, bytes.NewReader(stream.buffer), stream.options...)
 		if err != nil {
@@ -254,12 +322,22 @@ func (stream *AliOSSFileStream) Flush() error {
 			return tracing.Error(err)
 		}
 	}
+	return nil
+}
 
-	err := stream.ossFile.refreshMetaData()
-	if err != nil {
-		return tracing.Error(err)
+func (stream *AliOSSFileStream) flushToCryptoBucket() error {
+	if len(stream.uploadParts) == 0 {
+		err := stream.cryptoBucket.PutObject(stream.objectName, bytes.NewReader(stream.buffer), stream.options...)
+		if err != nil {
+			return tracing.Error(err)
+		}
+		logging.Debug(fmt.Sprintf("flush object %s succeeded", stream.objectName), nil)
+	} else {
+		_, err := stream.bucket.CompleteMultipartUpload(stream.imur, stream.uploadParts)
+		if err != nil {
+			return tracing.Error(err)
+		}
 	}
-
 	return nil
 }
 
@@ -267,12 +345,7 @@ func (stream *AliOSSFileStream) Close() error {
 	return nil
 }
 
-func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]FileChunkWriter, error) {
-	chunkNum := int(math.Ceil(float64(fileSize) / float64(chunkSize)))
-	if chunkNum <= 0 || chunkNum > 10000 {
-		return nil, errors.New("chunkNum invalid")
-	}
-
+func (stream *AliOSSFileStream) generateChunks(fileSize int64, chunkSize int64, chunkNum int64) ([]FileChunkWriter, error) {
 	if int64(chunkNum) > fileSize {
 		return nil, errors.New("oss: chunkNum invalid")
 	}
@@ -303,6 +376,63 @@ func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]
 		chunks = append(chunks, chunkWriter)
 	}
 	return chunks, nil
+}
+
+func (stream *AliOSSFileStream) generateCryptoChunks(fileSize int64, chunkSize int64, chunkNum int64) ([]FileChunkWriter, error) {
+	if int64(chunkNum) > fileSize {
+		return nil, errors.New("oss: chunkNum invalid")
+	}
+
+	// 加密上下文信息。
+	var cryptoContext osscrypto.PartCryptoContext
+	cryptoContext.DataSize = fileSize
+
+	// 期望的分片数，实际分片数以后续计算出来的为准。
+	expectPartCount := int64(chunkNum)
+
+	// 目前aes ctr加密分片大小需16个字节对齐。
+	cryptoContext.PartSize = (fileSize / expectPartCount / 16) * 16
+	actualChunkNum := int64(math.Ceil(float64(fileSize) / float64(cryptoContext.PartSize)))
+
+	// 步骤1：初始化一个分片上传事件，并指定存储类型为标准存储。
+	imur, err := stream.cryptoBucket.InitiateMultipartUpload(stream.objectName, &cryptoContext, stream.options...)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	stream.imur = imur
+
+	var chunks []FileChunkWriter
+	var chunkN = (int64)(actualChunkNum)
+	for i := int64(0); i < chunkN; i++ {
+		chunk := oss.FileChunk{}
+		chunk.Number = int(i + 1)
+		chunk.Offset = i * (fileSize / chunkN)
+		if i == chunkN-1 {
+			chunk.Size = fileSize - i*chunkSize
+		} else {
+			chunk.Size = chunkSize
+		}
+
+		chunkWriter := &AliOSSChunkFileWriter{
+			fs:    stream,
+			chunk: chunk,
+		}
+		chunks = append(chunks, chunkWriter)
+	}
+	return chunks, nil
+}
+
+func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]FileChunkWriter, error) {
+	chunkNum := int(math.Ceil(float64(fileSize) / float64(chunkSize)))
+	if chunkNum <= 0 || chunkNum > 10000 {
+		return nil, errors.New("chunkNum invalid")
+	}
+
+	if stream.isCryptpStream {
+		return stream.generateCryptoChunks(fileSize, chunkSize, int64(chunkNum))
+	} else {
+		return stream.generateChunks(fileSize, chunkSize, int64(chunkNum))
+	}
 }
 
 type AliOSSChunkFileWriter struct {

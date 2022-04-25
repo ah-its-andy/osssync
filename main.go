@@ -23,6 +23,7 @@ func main() {
 	flag.Int64Var(&args.ChunkSizeMb, "chunkSize", 0, "chunk size in MB")
 	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
 	flag.StringVar(&args.DbPath, "db", "", "db path")
+	flag.StringVar(&args.Password, "password", "", "password")
 	flag.Parse()
 
 	config.AttachValue(core.Arg_SourcePath, absFilePath(args.SourcePath))
@@ -34,13 +35,16 @@ func main() {
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
 	config.AttachValue(core.Arg_DbPath, args.DbPath)
+	config.AttachValue(core.Arg_Password, args.Password)
 
-	if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
-		panic("source path is required")
-	}
+	if args.Operation != "generateKey" {
+		if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
+			panic("source path is required")
+		}
 
-	if config.GetStringOrDefault(core.Arg_DestPath, "") == "" {
-		panic("DestPath is required")
+		if config.GetStringOrDefault(core.Arg_DestPath, "") == "" {
+			panic("DestPath is required")
+		}
 	}
 
 	err := app.Startup()
@@ -73,6 +77,8 @@ type Args struct {
 	Daemon    bool
 
 	DbPath string
+
+	Password string
 }
 
 func absFilePath(p string) string {
