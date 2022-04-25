@@ -165,11 +165,18 @@ func PushDir(path string, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
+	if len(rds) == 0 {
+		logging.Info(fmt.Sprintf("Directory %s is empty", path), nil)
+		return nil
+	}
+
 	sourcePath := config.RequireString(core.Arg_SourcePath)
 	var wg sync.WaitGroup
 	for _, rd := range rds {
 		if rd.IsDir() {
-			return PushDir(core.JoinUri(path, rd.Name()), destPath, fullIndex)
+			subPath := core.JoinUri(path, rd.Name())
+			logging.Info(fmt.Sprintf("Enter directory %s", subPath), nil)
+			return PushDir(subPath, destPath, fullIndex)
 		}
 		filePath := core.JoinUri(path, rd.Name())
 		relativePath := strings.TrimPrefix(filePath, sourcePath)
