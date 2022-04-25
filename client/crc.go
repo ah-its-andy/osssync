@@ -8,6 +8,14 @@ import (
 )
 
 func CheckCRC64(src core.FileInfo, dest core.FileInfo) error {
+	if _, ok := src.(core.CryptoFileInfo); ok {
+		logging.Info(fmt.Sprintf("File %s is encrypted, skip CRC64 check", src.Name()), nil)
+		return nil
+	}
+	if _, ok := dest.(core.CryptoFileInfo); ok {
+		logging.Info(fmt.Sprintf("File %s is encrypted, skip CRC64 check", src.Name()), nil)
+		return nil
+	}
 	srcCrc, err := src.CRC64()
 	if err != nil {
 		return tracing.Error(err)

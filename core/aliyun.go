@@ -126,12 +126,12 @@ func (fileInfo *AliOSSFileInfo) UseEncryption(useMnemonic bool, content string) 
 		return tracing.Error(err)
 	}
 
-	pubK, err := GetPublicKeyPEM(masterPrivateKey)
+	pubK, err := GetPublicKeyPEM(masterPrivateKey, "PKIX")
 	if err != nil {
 		return tracing.Error(err)
 	}
 
-	privK := GetPrivateKeyPEM(masterPrivateKey)
+	privK, err := GetPrivateKeyPEM(masterPrivateKey, "PKCS8")
 
 	// 根据主密钥描述信息创建一个主密钥对象。
 	masterRsaCipher, err := osscrypto.CreateMasterRsa(materialDesc, string(pubK), string(privK))
@@ -427,19 +427,21 @@ func (stream *AliOSSFileStream) generateCryptoChunks(fileSize int64, chunkSize i
 	for i := int64(0); i < chunkN; i++ {
 		chunk := oss.FileChunk{}
 		chunk.Number = int(i + 1)
-		chunk.Offset = i * (fileSize / chunkN)
+		chunk.Offset = i * cryptoContext.PartSize
 		if i == chunkN-1 {
-			chunk.Size = fileSize - i*chunkSize
+			chunk.Size = fileSize - i*cryptoContext.PartSize
 		} else {
-			chunk.Size = chunkSize
+			chunk.Size = cryptoContext.PartSize
 		}
 
 		chunkWriter := &AliOSSChunkFileWriter{
-			fs:    stream,
-			chunk: chunk,
+			fs:            stream,
+			chunk:         chunk,
+			cruptoContext: &cryptoContext,
 		}
 		chunks = append(chunks, chunkWriter)
 	}
+
 	return chunks, nil
 }
 
@@ -457,19 +459,29 @@ func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]
 }
 
 type AliOSSChunkFileWriter struct {
-	fs    *AliOSSFileStream
-	chunk oss.FileChunk
+	fs            *AliOSSFileStream
+	chunk         oss.FileChunk
+	cruptoContext *osscrypto.PartCryptoContext
 
 	result *oss.UploadPart
 }
 
 func (writer *AliOSSChunkFileWriter) Write(p []byte) (n int, err error) {
 	// 调用UploadPart方法上传每个分片。
-	part, err := writer.fs.bucket.UploadPart(writer.fs.imur, bytes.NewBuffer(p), writer.chunk.Size, writer.chunk.Number)
-	if err != nil {
-		return 0, tracing.Error(err)
+	if writer.fs.isCryptoStream {
+		part, err := writer.fs.cryptoBucket.UploadPart(writer.fs.imur, bytes.NewBuffer(p), writer.chunk.Size, writer.chunk.Number, *writer.cruptoContext)
+		if err != nil {
+			return 0, tracing.Error(err)
+		}
+		writer.result = &part
+	} else {
+		part, err := writer.fs.bucket.UploadPart(writer.fs.imur, bytes.NewBuffer(p), writer.chunk.Size, writer.chunk.Number)
+		if err != nil {
+			return 0, tracing.Error(err)
+		}
+		writer.result = &part
 	}
-	writer.result = &part
+
 	return len(p), nil
 }
 

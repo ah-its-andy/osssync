@@ -100,6 +100,8 @@ func Set[T NoSqliteEntity](name string, data T, indexes ...KV) error {
 		return tracing.Error(err)
 	}
 
+	err = RemoveIndex[T](tx, objID)
+
 	for _, index := range indexes {
 		err = SetIndex[T](tx, objID, index.K, index.V)
 		if err != nil {
@@ -277,6 +279,7 @@ func Remove[T NoSqliteEntity](name string) error {
 	if err != nil {
 		return tracing.Error(err)
 	}
+	tx.Commit()
 
 	return nil
 }

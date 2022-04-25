@@ -119,9 +119,9 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 			return tracing.Error(err)
 		}
 		for _, chunk := range chunks {
-			offset := chunkSize * (chunk.Number() - 1)
-			bufferSize := chunkSize
-			if offset+chunkSize > fileSize {
+			offset := chunk.ChunkSize() * (chunk.Number() - 1)
+			bufferSize := chunk.ChunkSize()
+			if offset+chunk.ChunkSize() > fileSize {
 				bufferSize = fileSize - offset
 			}
 

@@ -120,7 +120,7 @@ func SetIndex[T NoSqliteEntity](db *sql.Tx, objId string, name string, value str
 	return nil
 }
 
-func RemoveIndex[T NoSqliteEntity](db *sql.DB, objId string) error {
+func RemoveIndex[T NoSqliteEntity](db *sql.Tx, objId string) error {
 	tableName := (*new(T)).TableName()
 	_, err := db.Exec(fmt.Sprintf(`DELETE FROM "%s_dyanmicidx" WHERE "object_id" = ?`, tableName), objId)
 	if err != nil {
