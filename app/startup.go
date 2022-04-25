@@ -44,6 +44,8 @@ func Startup() error {
 		if !filepath.IsAbs(dbPath) {
 			dbPath, _ = filepath.Abs(dbPath)
 		}
+		dbPath = core.JoinUri(dbPath, "osssync.db")
+		logging.Info(fmt.Sprintf("db path: %s", dbPath), nil)
 	}
 	err = nosqlite.Init(fmt.Sprintf("file:%s?cache=shared", dbPath))
 	if err != nil {
