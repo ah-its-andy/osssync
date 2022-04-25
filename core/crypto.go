@@ -7,10 +7,26 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"hash/crc64"
 	"math/rand"
 
 	"github.com/tyler-smith/go-bip39"
 )
+
+func UseCryptoIfPossible(fileInfo FileInfo, mnemonic string, password string) error {
+	if mnemonic == "" && password == "" {
+		return nil
+	}
+	if cf, ok := fileInfo.(CryptoFileInfo); !ok {
+		return fmt.Errorf("File type %s does not support encryption", fileInfo.FileType())
+	} else if mnemonic != "" {
+		return cf.UseEncryption(true, mnemonic)
+	} else if password != "" {
+		return cf.UseEncryption(false, password)
+	}
+
+	return nil
+}
 
 type MnemonicKey struct {
 	MasterKey string
@@ -44,8 +60,19 @@ func GenerateMnemonic() (string, error) {
 
 }
 
-func GenerateRsaKey(mnemonic string) (*rsa.PrivateKey, error) {
+func GetMnemonicSeed(mnemonic string) int64 {
 	seed := int64(binary.LittleEndian.Uint64(bip39.NewSeed(mnemonic, "")))
+	return seed
+}
+
+func GetPasswordSeed(password string) int64 {
+	crc64Cipher := crc64.New(crc64.MakeTable(crc64.ECMA))
+	crc64Cipher.Write([]byte(password))
+	seed := int64(binary.LittleEndian.Uint64(crc64Cipher.Sum(nil)))
+	return seed
+}
+
+func GenerateRsaKey(seed int64) (*rsa.PrivateKey, error) {
 	r := rand.New(rand.NewSource(seed))
 	return rsa.GenerateKey(r, 4096)
 }

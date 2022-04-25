@@ -258,7 +258,22 @@ func Remove[T NoSqliteEntity](name string) error {
 	}
 	defer db.Close()
 
-	_, err = db.Exec(fmt.Sprintf(`DELETE FROM "%s" WHERE "name" = ?`, (*new(T)).TableName()), name)
+	tx, err := db.Begin()
+	var id string
+	err = tx.QueryRow(fmt.Sprintf(`SELECT "id" FROM "%s" WHERE "name" = ?`, (*new(T)).TableName()), name).Scan(&id)
+	if err != nil {
+		if IfNoRows(err) {
+			return nil
+		}
+		return tracing.Error(err)
+	}
+
+	_, err = db.Exec(fmt.Sprintf(`DELETE FROM "%s" WHERE "id" = ?`, (*new(T)).TableName()), id)
+	if err != nil {
+		return tracing.Error(err)
+	}
+	tableName := (*new(T)).TableName()
+	_, err = db.Exec(fmt.Sprintf(`DELETE FROM "%s_dyanmicidx" WHERE "object_id" = ?`, tableName), id)
 	if err != nil {
 		return tracing.Error(err)
 	}

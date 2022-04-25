@@ -24,7 +24,7 @@ func PushFile(src core.FileInfo, destPath string, fullIndex bool) error {
 		return tracing.Error(err)
 	}
 
-	if fileIndex != nil && !config.GetValueOrDefault[bool](core.Arg_FullIndex, false) {
+	if fileIndex != nil && !config.GetValueOrDefault(core.Arg_FullIndex, false) {
 		logging.Info(fmt.Sprintf("File %s had been indexed already", src.Name()), nil)
 		return nil
 	}

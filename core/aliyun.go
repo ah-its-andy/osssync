@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"osssync/common/logging"
 	"osssync/common/tracing"
@@ -46,8 +47,8 @@ type AliOSSFileInfo struct {
 	client *oss.Client
 	bucket *oss.Bucket
 
-	cryptoFile   bool
-	mnemonic     []byte
+	isCryptoFile bool
+	cryptoSeed   string
 	cryptoBucket *osscrypto.CryptoBucket
 }
 
@@ -104,7 +105,7 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectDir string, relati
 	return fileInfo, nil
 }
 
-func (fileInfo *AliOSSFileInfo) UseEncryption(mnemonic string) error {
+func (fileInfo *AliOSSFileInfo) UseEncryption(useMnemonic bool, content string) error {
 	// 创建一个主密钥的描述信息，创建后不允许修改。主密钥描述信息和主密钥一一对应。
 	// 如果所有的Object都使用相同的主密钥，主密钥描述信息可以为空，但后续不支持更换主密钥。
 	// 如果主密钥描述信息为空，解密时无法判断使用的是哪个主密钥。
@@ -112,10 +113,15 @@ func (fileInfo *AliOSSFileInfo) UseEncryption(mnemonic string) error {
 
 	// 由主密钥描述信息(json字符串)转换的map。
 	materialDesc := make(map[string]string)
-	materialDesc["desc"] = "mnemonic"
 
 	// 创建一个主密钥。
-	masterPrivateKey, err := GenerateRsaKey(mnemonic)
+	var seed int64
+	if useMnemonic {
+		seed = GetMnemonicSeed(content)
+	} else {
+		seed = GetPasswordSeed(content)
+	}
+	masterPrivateKey, err := GenerateRsaKey(seed)
 	if err != nil {
 		return tracing.Error(err)
 	}
@@ -124,7 +130,9 @@ func (fileInfo *AliOSSFileInfo) UseEncryption(mnemonic string) error {
 	if err != nil {
 		return tracing.Error(err)
 	}
+
 	privK := GetPrivateKeyPEM(masterPrivateKey)
+
 	// 根据主密钥描述信息创建一个主密钥对象。
 	masterRsaCipher, err := osscrypto.CreateMasterRsa(materialDesc, string(pubK), string(privK))
 	if err != nil {
@@ -141,7 +149,7 @@ func (fileInfo *AliOSSFileInfo) UseEncryption(mnemonic string) error {
 		return tracing.Error(err)
 	}
 	fileInfo.cryptoBucket = cryptoBucket
-	fileInfo.cryptoFile = true
+	fileInfo.isCryptoFile = true
 	return nil
 }
 
@@ -205,16 +213,18 @@ func (fileInfo *AliOSSFileInfo) Stream() (FileStream, error) {
 		}
 	}
 	return &AliOSSFileStream{
-		ossFile:       fileInfo,
-		client:        fileInfo.client,
-		bucket:        fileInfo.bucket,
-		bucketName:    fileInfo.bucketName,
-		objectName:    fileInfo.objectName,
-		contentLength: fileInfo.contentLength,
-		options:       opts,
-		uploadParts:   make([]oss.UploadPart, 0),
-		buffer:        make([]byte, 0),
-		flushLock:     &sync.Mutex{},
+		ossFile:        fileInfo,
+		client:         fileInfo.client,
+		bucket:         fileInfo.bucket,
+		cryptoBucket:   fileInfo.cryptoBucket,
+		isCryptoStream: fileInfo.isCryptoFile,
+		bucketName:     fileInfo.bucketName,
+		objectName:     fileInfo.objectName,
+		contentLength:  fileInfo.contentLength,
+		options:        opts,
+		uploadParts:    make([]oss.UploadPart, 0),
+		buffer:         make([]byte, 0),
+		flushLock:      &sync.Mutex{},
 	}, nil
 }
 
@@ -245,6 +255,8 @@ func (fileInfo *AliOSSFileInfo) Remove() error {
 }
 
 type AliOSSFileStream struct {
+	localFile FileInfo
+
 	bucketName    string
 	objectName    string
 	contentLength int64
@@ -253,7 +265,7 @@ type AliOSSFileStream struct {
 
 	client         *oss.Client
 	bucket         *oss.Bucket
-	isCryptpStream bool
+	isCryptoStream bool
 	cryptoBucket   *osscrypto.CryptoBucket
 	imur           oss.InitiateMultipartUploadResult
 	uploadParts    []oss.UploadPart
@@ -273,10 +285,19 @@ func (stream *AliOSSFileStream) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (stream *AliOSSFileStream) Read(p []byte) (n int, err error) {
-	reader, err := stream.bucket.GetObject(stream.objectName, stream.options...)
-	if err != nil {
-		return 0, tracing.Error(err)
+	var reader io.ReadCloser
+	if stream.isCryptoStream {
+		reader, err = stream.cryptoBucket.GetObject(stream.objectName, stream.options...)
+		if err != nil {
+			return 0, tracing.Error(err)
+		}
+	} else {
+		reader, err = stream.bucket.GetObject(stream.objectName, stream.options...)
+		if err != nil {
+			return 0, tracing.Error(err)
+		}
 	}
+	defer reader.Close()
 
 	return reader.Read(p)
 }
@@ -290,7 +311,7 @@ func (stream *AliOSSFileStream) Write(p []byte) (n int, err error) {
 }
 
 func (stream *AliOSSFileStream) Flush() error {
-	if stream.isCryptpStream {
+	if stream.isCryptoStream {
 		err := stream.flushToCryptoBucket()
 		if err != nil {
 			return tracing.Error(err)
@@ -428,7 +449,7 @@ func (stream *AliOSSFileStream) ChunkWrites(fileSize int64, chunkSize int64) ([]
 		return nil, errors.New("chunkNum invalid")
 	}
 
-	if stream.isCryptpStream {
+	if stream.isCryptoStream {
 		return stream.generateCryptoChunks(fileSize, chunkSize, int64(chunkNum))
 	} else {
 		return stream.generateChunks(fileSize, chunkSize, int64(chunkNum))

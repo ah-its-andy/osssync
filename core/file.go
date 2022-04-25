@@ -31,6 +31,11 @@ type FileInfo interface {
 	Stream() (FileStream, error)
 }
 
+type CryptoFileInfo interface {
+	FileInfo
+	UseEncryption(useMnemonic bool, content string) error
+}
+
 type PhysicalFileInfo struct {
 	path         string
 	relativePath string
@@ -53,6 +58,18 @@ func OpenPhysicalFile(dirPath string, relativePath string) (FileInfo, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			fileInfo.exists = true
+			fileDirPath := filePath[:strings.LastIndex(filePath, "/")]
+			_, err := os.Stat(fileDirPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					err = os.MkdirAll(fileDirPath, 0755)
+					if err != nil {
+						return nil, tracing.Error(err)
+					}
+				} else {
+					return nil, tracing.Error(err)
+				}
+			}
 			fd, err := os.Create(filePath)
 			if err != nil {
 				return nil, tracing.Error(err)

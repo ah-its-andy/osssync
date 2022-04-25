@@ -24,6 +24,7 @@ func main() {
 	flag.StringVar(&args.Operation, "operation", "", "[index, push, pull, sync]")
 	flag.StringVar(&args.DbPath, "db", "", "db path")
 	flag.StringVar(&args.Password, "password", "", "password")
+	flag.StringVar(&args.Mnemonic, "mnemonic", "", "mnemonic")
 	flag.Parse()
 
 	config.AttachValue(core.Arg_SourcePath, absFilePath(args.SourcePath))
@@ -36,6 +37,7 @@ func main() {
 	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
 	config.AttachValue(core.Arg_DbPath, args.DbPath)
 	config.AttachValue(core.Arg_Password, args.Password)
+	config.AttachValue(core.Arg_Mnemonic, strings.TrimPrefix(strings.TrimSuffix(args.Mnemonic, "'"), "'"))
 
 	if args.Operation != "generateKey" {
 		if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
@@ -79,6 +81,7 @@ type Args struct {
 	DbPath string
 
 	Password string
+	Mnemonic string
 }
 
 func absFilePath(p string) string {

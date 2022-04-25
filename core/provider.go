@@ -9,11 +9,11 @@ import (
 	"strings"
 )
 
-func GetFile(dirPath string, relativePath string) (FileInfo, error) {
+func GetFile(dirPath string, relativePath string) (fileInfo FileInfo, err error) {
 	fileType := ResolveUriType(dirPath)
 	switch fileType {
 	case FileType_Physical:
-		return OpenPhysicalFile(absFilePath(dirPath), relativePath)
+		fileInfo, err = OpenPhysicalFile(absFilePath(dirPath), relativePath)
 
 	case FileType_AliOSS:
 		credentialFilePath := config.RequireString(Arg_CredentialsFile)
@@ -31,11 +31,21 @@ func GetFile(dirPath string, relativePath string) (FileInfo, error) {
 			return nil, tracing.Error(err)
 		}
 
-		return OpenAliOSS(aliCfg.Config, bucketName, objectName, relativePath)
+		fileInfo, err = OpenAliOSS(aliCfg.Config, bucketName, objectName, relativePath)
 
 	default:
 		return nil, fmt.Errorf("unknown file type: %s", fileType)
 	}
+
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	err = UseCryptoIfPossible(fileInfo, config.GetStringOrDefault(Arg_Mnemonic, ""),
+		config.GetStringOrDefault(Arg_Password, ""))
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	return fileInfo, nil
 }
 
 func absFilePath(p string) string {
