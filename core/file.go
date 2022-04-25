@@ -14,6 +14,22 @@ import (
 	"github.com/mr-tron/base58"
 )
 
+type BucketInfo struct {
+	BasePath      string
+	SubPath       string
+	Name          string
+	ContinueToken string
+	IsTruncated   bool
+	Objects       []*ObjectInfo
+}
+
+type ObjectInfo struct {
+	BasePath     string
+	RelativePath string
+	FileType     FileType
+	Size         int64
+}
+
 type FileInfo interface {
 	io.Closer
 

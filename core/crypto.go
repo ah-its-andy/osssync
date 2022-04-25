@@ -80,9 +80,12 @@ func GenerateRsaKey(seed int64) (*rsa.PrivateKey, error) {
 
 func GetPrivateKeyPEM(pk *rsa.PrivateKey, keyFormat string) ([]byte, error) {
 	var buffer []byte
+	var blockType string
 	if keyFormat == "PKCS1" {
+		blockType = "RSA PRIVATE KEY"
 		buffer = x509.MarshalPKCS1PrivateKey(pk)
 	} else if keyFormat == "PKCS8" {
+		blockType = "PRIVATE KEY"
 		b, err := x509.MarshalPKCS8PrivateKey(pk)
 		if err != nil {
 			return nil, err
@@ -91,8 +94,8 @@ func GetPrivateKeyPEM(pk *rsa.PrivateKey, keyFormat string) ([]byte, error) {
 		copy(buffer, b)
 	}
 	var pb = &pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(pk),
+		Type:  blockType,
+		Bytes: buffer,
 	}
 
 	return pem.EncodeToMemory(pb), nil
@@ -100,9 +103,12 @@ func GetPrivateKeyPEM(pk *rsa.PrivateKey, keyFormat string) ([]byte, error) {
 
 func GetPublicKeyPEM(pk *rsa.PrivateKey, keyFormat string) ([]byte, error) {
 	var buffer []byte
+	var blockType string
 	if keyFormat == "PKCS1" {
+		blockType = "RSA PUBLIC KEY"
 		buffer = x509.MarshalPKCS1PublicKey(&pk.PublicKey)
 	} else if keyFormat == "PKIX" {
+		blockType = "PUBLIC KEY"
 		b, err := x509.MarshalPKIXPublicKey(&pk.PublicKey)
 		if err != nil {
 			return nil, err
@@ -112,7 +118,7 @@ func GetPublicKeyPEM(pk *rsa.PrivateKey, keyFormat string) ([]byte, error) {
 	}
 
 	pb := &pem.Block{
-		Type:  "PUBLIC KEY",
+		Type:  blockType,
 		Bytes: buffer,
 	}
 

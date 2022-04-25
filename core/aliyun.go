@@ -16,6 +16,58 @@ import (
 	osscrypto "github.com/aliyun/aliyun-oss-go-sdk/oss/crypto"
 )
 
+func LsAliOss(config AliOSSConfig, basePath string, continueToken string) (*BucketInfo, error) {
+	client, err := oss.New(config.EndPoint, config.AccessKeyId, config.AccessKeySecret)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	bucketName, err := ResolveBucketName(basePath)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+
+	bucket, err := client.Bucket(bucketName)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+
+	options := []oss.Option{
+		oss.ContinuationToken(continueToken),
+	}
+	subPath, err := ResolveRelativePath(basePath)
+	if err == nil {
+		options = append(options, oss.Prefix(subPath))
+	}
+
+	lsRes, err := bucket.ListObjectsV2(options...)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+
+	bucketInfo := &BucketInfo{
+		BasePath:    basePath,
+		SubPath:     subPath,
+		Name:        bucketName,
+		Objects:     make([]*ObjectInfo, 0),
+		IsTruncated: lsRes.IsTruncated,
+	}
+	for _, object := range lsRes.Objects {
+		absPath := fmt.Sprintf("oss://%s/%s", bucketName, object.Key)
+		relativePath := strings.TrimPrefix(absPath, basePath)
+		objInfo := &ObjectInfo{
+			BasePath:     basePath,
+			RelativePath: relativePath,
+			Size:         object.Size,
+			FileType:     FileType_AliOSS,
+		}
+		bucketInfo.Objects = append(bucketInfo.Objects, objInfo)
+	}
+	if lsRes.IsTruncated {
+		bucketInfo.ContinueToken = lsRes.NextContinuationToken
+	}
+	return bucketInfo, nil
+}
+
 type AliOSSCfgWrapper struct {
 	Config AliOSSConfig `yaml:"alioss"`
 }
@@ -97,7 +149,7 @@ func OpenAliOSS(config AliOSSConfig, bucketName string, objectDir string, relati
 	if err != nil {
 		return nil, tracing.Error(err)
 	}
-	if contentLength, ok := fileInfo.metaData[PropertyName_ContentLength]; ok {
+	if contentLength, ok := fileInfo.metaData["content-length"]; ok {
 		if contentLengthInt, err := strconv.ParseInt(contentLength, 10, 32); err == nil {
 			fileInfo.contentLength = contentLengthInt
 		}
@@ -281,7 +333,9 @@ func (stream *AliOSSFileStream) Size() int64 {
 }
 
 func (stream *AliOSSFileStream) Seek(offset int64, whence int) (int64, error) {
-	return 0, errors.New("not support")
+	logging.Debug(fmt.Sprintf("File type %s not support seek", stream.ossFile.FileType()), nil)
+
+	return 0, nil
 }
 
 func (stream *AliOSSFileStream) Read(p []byte) (n int, err error) {

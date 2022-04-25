@@ -66,34 +66,22 @@ func Run() error {
 
 	sourcePath := config.RequireString(core.Arg_SourcePath)
 	destPath := config.GetStringOrDefault(core.Arg_DestPath, "")
-	statInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("source path not found: %s", sourcePath)
-		}
-		return tracing.Error(err)
-	}
 
-	if statInfo.IsDir() {
-		switch operation {
+	switch operation {
 
-		case "push":
-			return client.PushDir(sourcePath,
-				destPath,
-				config.RequireValue[bool](core.Arg_FullIndex))
+	case "push":
+		return client.PushDir(sourcePath,
+			destPath,
+			config.RequireValue[bool](core.Arg_FullIndex))
 
-		case "pull":
-			return fmt.Errorf("pull operation is not supported yet")
+	case "pull":
+		return client.Pull(sourcePath, destPath)
 
-		case "sync":
-			return fmt.Errorf("sync operation is not supported yet")
+	case "sync":
+		return fmt.Errorf("sync operation is not supported yet")
 
-		default:
-			return fmt.Errorf("unknown operation: %s", operation)
-		}
-
-	} else {
-		return fmt.Errorf("source path is not a directory: %s", sourcePath)
+	default:
+		return fmt.Errorf("unknown operation: %s", operation)
 	}
 	return nil
 }

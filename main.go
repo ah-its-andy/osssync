@@ -31,11 +31,11 @@ func main() {
 	config.AttachValue(core.Arg_CredentialsFile, absFilePath(args.CredentialsFile))
 	config.AttachValue(core.Arg_Config, absFilePath(args.Config))
 	config.AttachValue(core.Arg_Config, absFilePath(args.Config))
-	config.AttachValue(core.Arg_DestPath, args.DestPath)
+	config.AttachValue(core.Arg_DestPath, absFilePath(args.DestPath))
 	config.AttachValue(core.Arg_Operation, args.Operation)
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
-	config.AttachValue(core.Arg_DbPath, args.DbPath)
+	config.AttachValue(core.Arg_DbPath, absFilePath(args.DbPath))
 	config.AttachValue(core.Arg_Password, args.Password)
 	config.AttachValue(core.Arg_Mnemonic, strings.TrimPrefix(strings.TrimSuffix(args.Mnemonic, "'"), "'"))
 
@@ -86,6 +86,9 @@ type Args struct {
 
 func absFilePath(p string) string {
 	if p == "" {
+		return p
+	}
+	if strings.Contains(p, "://") {
 		return p
 	}
 	if strings.HasPrefix(p, "~/") {
