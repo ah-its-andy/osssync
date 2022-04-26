@@ -2,8 +2,8 @@ package client
 
 import (
 	"io"
-	"io/ioutil"
 	"osssync/common/config"
+	"osssync/common/logging"
 	"osssync/common/tracing"
 	"osssync/core"
 )
@@ -19,18 +19,7 @@ func TransferFile(srcPath string, dstPath string, relativePath string) error {
 	if err != nil {
 		return err
 	}
-
-	srcStream, err := srcFile.Stream()
-	if err != nil {
-		return err
-	}
-	defer srcStream.Close()
-
-	destStream, err := destFile.Stream()
-	if err != nil {
-		return err
-	}
-	defer destStream.Close()
+	defer destFile.Close()
 
 	fileSize := srcFile.Size()
 	chunkSizeMb := int64(config.GetValueOrDefault[float64](core.Arg_ChunkSizeMb, 5))
@@ -39,52 +28,33 @@ func TransferFile(srcPath string, dstPath string, relativePath string) error {
 	}
 	chunkSize := chunkSizeMb * 1024 * 1024
 	if chunkSize > fileSize {
-		buffer, err := ioutil.ReadAll(srcStream)
+		srcReader := srcFile.Reader()
+		// buffer := make([]byte, fileSize)
+		// _, err := srcReader.ReadAt(buffer, 0)
+		// if err != nil {
+		// 	return err
+		// }
+		destWriter := destFile.Writer()
+		// _, err = destWriter.Write(buffer)
+		// if err != nil {
+		// 	return err
+		// }
+		_, err = io.Copy(destWriter, srcReader)
 		if err != nil {
-			return err
-		}
-		_, err = destStream.Write(buffer)
-		if err != nil {
-			return err
+			return tracing.Error(err)
 		}
 	} else {
-		chunks, err := destStream.ChunkWrites(srcFile.Size(), chunkSize)
-		if err != nil {
-			return err
-		}
-		_, err = srcStream.Seek(0, io.SeekStart)
+		err = destFile.WalkChunk(srcFile.Reader(), chunkSize, fileSize, destFile.WriteChunk)
 		if err != nil {
 			return tracing.Error(err)
 		}
-
-		for _, chunk := range chunks {
-			offset := chunk.ChunkSize() * (chunk.Number() - 1)
-			bufferSize := chunk.ChunkSize()
-			if offset+chunk.ChunkSize() > fileSize {
-				bufferSize = fileSize - offset
-			}
-
-			tmp := make([]byte, bufferSize)
-			_, err := srcStream.Read(tmp)
-
-			if err != nil && err != io.EOF {
-				return tracing.Error(err)
-			}
-
-			_, err = chunk.Write(tmp)
-			if err != nil {
-				return tracing.Error(err)
-			}
-
-			err = chunk.Flush()
-			if err != nil {
-				return tracing.Error(err)
-			}
-		}
-		err = destStream.Flush()
-		if err != nil {
-			return tracing.Error(err)
-		}
+	}
+	err = destFile.Flush()
+	if err != nil {
+		return err
+	}
+	if err = CheckCRC64(srcFile, destFile); err != nil {
+		logging.Warn(err.Error(), nil)
 	}
 	return nil
 }

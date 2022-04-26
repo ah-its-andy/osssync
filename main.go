@@ -82,6 +82,8 @@ type Args struct {
 
 	Password string
 	Mnemonic string
+
+	Zip bool
 }
 
 func absFilePath(p string) string {

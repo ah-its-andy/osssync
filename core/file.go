@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"hash/crc64"
 	"io"
+	"math"
 	"os"
 	"osssync/common/tracing"
 	"strconv"
@@ -14,6 +15,13 @@ import (
 	"github.com/mr-tron/base58"
 )
 
+type FileChunkWriter func(content []byte, chunk *FileChunkInfo) (n int, err error)
+
+type FileChunkInfo struct {
+	Number    int64
+	ChunkSize int64
+	Offset    int64
+}
 type BucketInfo struct {
 	BasePath      string
 	SubPath       string
@@ -44,7 +52,13 @@ type FileInfo interface {
 	Properties() map[PropertyName]string
 	Remove() error
 
-	Stream() (FileStream, error)
+	Reader() io.Reader
+	Writer() io.Writer
+	Flush() error
+
+	// Stream() (FileStream, error)
+	WalkChunk(reader io.Reader, chunkSize int64, fileSize int64, writer FileChunkWriter) error
+	WriteChunk(content []byte, chunk *FileChunkInfo) (n int, err error)
 }
 
 type CryptoFileInfo interface {
@@ -63,6 +77,8 @@ type PhysicalFileInfo struct {
 	md5Base58 string
 
 	crc64 uint64
+
+	f *os.File
 
 	hashOnce sync.Once
 }
@@ -109,19 +125,24 @@ func OpenPhysicalFile(dirPath string, relativePath string) (FileInfo, error) {
 	fileInfo.exists = true
 	fileInfo.relativePath = relativePath
 
+	f, err := os.OpenFile(JoinUri(fileInfo.Path(), fileInfo.Name()), os.O_RDWR, 0)
+	if err != nil {
+		return nil, tracing.Error(err)
+	}
+	fileInfo.f = f
 	return fileInfo, nil
+}
+
+func (fileInfo *PhysicalFileInfo) Reader() io.Reader {
+	return fileInfo.f
 }
 
 func (fileInfo *PhysicalFileInfo) FileType() string {
 	return string(FileType_Physical)
 }
 
-func (fileInfo *PhysicalFileInfo) openFile(flag int) (*os.File, error) {
-	return os.OpenFile(JoinUri(fileInfo.Path(), fileInfo.Name()), flag, 0)
-}
-
 func (fileInfo *PhysicalFileInfo) Close() error {
-	return nil
+	return fileInfo.f.Close()
 }
 
 func (fileInfo *PhysicalFileInfo) Name() string {
@@ -148,15 +169,55 @@ func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
 	return true, nil
 }
 
-func (fileInfo *PhysicalFileInfo) Stream() (FileStream, error) {
-	file, err := fileInfo.openFile(os.O_RDWR)
-	if err != nil {
-		return nil, tracing.Error(err)
+func (fileInfo *PhysicalFileInfo) WalkChunk(reader io.Reader, chunkSize int64, fileSize int64, writer FileChunkWriter) error {
+	chunkNum := int64(math.Ceil(float64(fileSize) / float64(chunkSize)))
+
+	chunkReader := NewChunkReader(reader, chunkSize)
+	defer chunkReader.Close()
+	var chunkN = (int64)(chunkNum)
+	for i := int64(0); i < chunkN; i++ {
+		size := chunkSize
+		if i == chunkN-1 {
+			size = fileSize - i*chunkSize
+		} else {
+			size = chunkSize
+		}
+		chunk := &FileChunkInfo{
+			Number:    i,
+			ChunkSize: size,
+			Offset:    i * chunkSize,
+		}
+
+		_, buffer := chunkReader.ReadNext()
+
+		_, err := writer(buffer, chunk)
+		if err != nil {
+			return err
+		}
+		return nil
 	}
-	return &PhysicalFileStream{
-		f:    file,
-		stat: fileInfo.statInfo,
-	}, nil
+	return nil
+}
+
+func (fileInfo *PhysicalFileInfo) Writer() io.Writer {
+	return fileInfo.f
+}
+func (fileInfo *PhysicalFileInfo) Flush() error {
+	return nil
+}
+
+func (fileInfo *PhysicalFileInfo) WriteChunk(content []byte, chunk *FileChunkInfo) (n int, err error) {
+	size := int64(len(content))
+	bufferSize := chunk.ChunkSize
+	if size > bufferSize {
+		return 0, ErrIndexOutOfRange
+	}
+
+	n, err = fileInfo.f.WriteAt(content, chunk.Offset)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func (fileInfo *PhysicalFileInfo) ComputeHashOnce() error {

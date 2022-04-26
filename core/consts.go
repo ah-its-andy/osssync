@@ -34,3 +34,4 @@ const (
 )
 
 var ErrCRC64NotMatch error = fmt.Errorf("crc64 not match")
+var ErrIndexOutOfRange error = fmt.Errorf("index out of range")
