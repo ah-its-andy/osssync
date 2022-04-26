@@ -31,3 +31,29 @@ func TestDFileV5(t *testing.T) {
 	}
 	t.Logf("Copied %d bytes", n)
 }
+
+func TestReadFile(t *testing.T) {
+	srcPath := "/mnt/d/test/output/"
+	destPath := "/mnt/d/test/decoded.jfif"
+	dfile, err := OpenV5([3]string{
+		filepath.Join(srcPath, "slice.01"),
+		filepath.Join(srcPath, "slice.02"),
+		filepath.Join(srcPath, "slice.03"),
+	}, false)
+	if err != nil {
+		t.Error(err)
+	}
+	defer dfile.Close()
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		t.Error(err)
+	}
+	defer destFile.Close()
+
+	n, err := io.Copy(destFile, dfile)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("Copied %d bytes", n)
+
+}

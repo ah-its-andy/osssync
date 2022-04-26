@@ -1,6 +1,7 @@
 package distributedstorage
 
 import (
+	"io"
 	"os"
 	"sync"
 )
@@ -34,10 +35,13 @@ func (dfile *DistributedFileV5) Write(p []byte) (n int, err error) {
 	for {
 		var sectorData []byte
 		if offset >= len(p) {
-			sectorData = make([]byte, len(p)-offset+4096)
-		} else {
-			sectorData = make([]byte, 4096)
+			break
 		}
+		bufferSize := 4096
+		if offset+4096 > len(p) {
+			bufferSize = len(p) - offset
+		}
+		sectorData = make([]byte, bufferSize)
 		copy(sectorData, p[offset:])
 
 		sector, err := CreateSectorV5(sectorData)
@@ -45,61 +49,97 @@ func (dfile *DistributedFileV5) Write(p []byte) (n int, err error) {
 			return offset, err
 		}
 
-		for _, frame := range sector {
-			var wg sync.WaitGroup
-			wg.Add(3)
-			b1 := frame[0][:]
-			b2 := frame[1][:]
-			b3 := frame[2][:]
-			go func() {
-				defer wg.Done()
-				dfile.files[0].Write(b1)
-			}()
-			go func() {
-				defer wg.Done()
-				dfile.files[1].Write(b2)
-			}()
-			go func() {
-				defer wg.Done()
-				dfile.files[2].Write(b3)
-			}()
-			wg.Wait()
-		}
+		wg := &sync.WaitGroup{}
+
+		wg.Add(3)
+		go func(f *os.File, sector []byte) {
+			defer wg.Done()
+			if _, err := f.Write(sector); err != nil {
+				panic(err)
+			}
+		}(dfile.files[0], sector[0])
+
+		go func(f *os.File, sector []byte) {
+			defer wg.Done()
+			if _, err := f.Write(sector); err != nil {
+				panic(err)
+			}
+		}(dfile.files[1], sector[1])
+
+		go func(f *os.File, sector []byte) {
+			defer wg.Done()
+			if _, err := f.Write(sector); err != nil {
+				panic(err)
+			}
+		}(dfile.files[2], sector[2])
+
+		wg.Wait()
 
 		if offset >= len(p) {
 			break
 		}
 		offset += 4096
 	}
-	return offset, nil
+	return len(p), nil
 }
 
 func (dfile *DistributedFileV5) Read(p []byte) (n int, err error) {
-	b1 := make([]byte, 2048)
-	b2 := make([]byte, 2048)
-	b3 := make([]byte, 2048)
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		dfile.files[0].Read(b1)
-	}()
-	go func() {
-		defer wg.Done()
-		dfile.files[1].Read(b2)
-	}()
-	go func() {
-		defer wg.Done()
-		dfile.files[2].Read(b3)
-	}()
-	wg.Wait()
-	sector, err := DecodeSectorV5([][]byte{
-		b1, b2, b3,
-	})
-	if err != nil {
-		return 0, err
+	offset := 0
+	for {
+		b1 := make([]byte, 2048)
+		b2 := make([]byte, 2048)
+		b3 := make([]byte, 2048)
+		wg := &sync.WaitGroup{}
+		wg.Add(3)
+		go func(f *os.File, b []byte) {
+			defer wg.Done()
+			if n, err := f.Read(b); err != nil {
+				if err == io.EOF {
+					buf := make([]byte, n)
+					copy(buf, b)
+					b = buf
+				}
+				panic(err)
+			}
+		}(dfile.files[0], b1)
+
+		go func(f *os.File, b []byte) {
+			defer wg.Done()
+			if _, err := f.Read(b); err != nil {
+				if err == io.EOF {
+					buf := make([]byte, n)
+					copy(buf, b)
+					b = buf
+				}
+				panic(err)
+			}
+		}(dfile.files[1], b2)
+		go func(f *os.File, b []byte) {
+			defer wg.Done()
+			if _, err := f.Read(b); err != nil {
+				if err == io.EOF {
+					buf := make([]byte, n)
+					copy(buf, b)
+					b = buf
+				}
+				panic(err)
+			}
+		}(dfile.files[2], b3)
+		wg.Wait()
+
+		sector, err := DecodeSectorV5([][]byte{
+			b1, b2, b3,
+		})
+		if err != nil {
+			return 0, err
+		}
+		copy(p[offset:], sector)
+		offset += 2056
+		if offset >= len(p) {
+			break
+		}
 	}
-	return copy(p, sector), nil
+	return len(p), io.EOF
 }
 
 func (dfile *DistributedFileV5) Close() error {

@@ -1,9 +1,5 @@
 package distributedstorage
 
-import (
-	"encoding/binary"
-)
-
 func CreateFrameV5(data [8]byte) [3][4]byte {
 	ret := make([][4]byte, 3)
 	ret[0] = [4]byte{data[0], data[2] ^ data[3], data[5], data[6]}
@@ -91,26 +87,16 @@ func CheckXor(xor byte, left byte, right byte) bool {
 	return xor == (left ^ right)
 }
 
-func CreateSectorV5(data []byte) ([][3][4]byte, error) {
+func CreateSectorV5(data []byte) ([3][]byte, error) {
 	sectorSize := len(data)
 	alignSize := sectorSize
 	if sectorSize%8 != 0 {
 		alignSize += 8 - sectorSize%8
 	}
 
-	sectorSizeBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(sectorSizeBuf, uint64(sectorSize))
+	frames := make([][3][4]byte, alignSize/8)
 
-	ret := make([][3][4]byte, alignSize/8+1)
-	ret[0] = CreateFrameV5(
-		[8]byte{
-			sectorSizeBuf[0], sectorSizeBuf[1],
-			sectorSizeBuf[2], sectorSizeBuf[3],
-			sectorSizeBuf[4], sectorSizeBuf[5],
-			sectorSizeBuf[6], sectorSizeBuf[7],
-		})
-
-	for i := 8; i < len(data); i += 8 {
+	for i := 0; i < len(data); i += 8 {
 		if i+7 > len(data) {
 			remain := len(data) - i
 			frameData := make([]byte, 8)
@@ -121,47 +107,54 @@ func CreateSectorV5(data []byte) ([][3][4]byte, error) {
 					frameData[j] = 0
 				}
 			}
-			ret[i/8] = CreateFrameV5(
+			frames[i/8] = CreateFrameV5(
 				[8]byte{
 					frameData[0], frameData[1],
 					frameData[2], frameData[3],
 					frameData[4], frameData[5],
 					frameData[6], frameData[7]})
 		} else {
-			ret[i/8] = CreateFrameV5([8]byte{
+			frames[i/8] = CreateFrameV5([8]byte{
 				data[i], data[i+1],
 				data[i+2], data[i+3],
 				data[i+4], data[i+5],
 				data[i+6], data[i+7]})
 		}
 	}
-	return ret, nil
+	return FlatFramesV5(frames), nil
+}
+
+func FlatFramesV5(frames [][3][4]byte) [3][]byte {
+	ret := make([][]byte, 3)
+	ret[0] = make([]byte, len(frames)*4)
+	ret[1] = make([]byte, len(frames)*4)
+	ret[2] = make([]byte, len(frames)*4)
+
+	for i, frame := range frames {
+		copy(ret[0][i*4:i*4+4], frame[0][:])
+		copy(ret[1][i*4:i*4+4], frame[1][:])
+		copy(ret[2][i*4:i*4+4], frame[2][:])
+	}
+	return [3][]byte{ret[0], ret[1], ret[2]}
 }
 
 func DecodeSectorV5(sectorData [][]byte) ([]byte, error) {
-	sectorSizeData := make([][4]byte, 3)
-	copy(sectorSizeData[0][:], sectorData[0][:4])
-	copy(sectorSizeData[1][:], sectorData[1][:4])
-	copy(sectorSizeData[2][:], sectorData[2][:4])
-	sectorFrame := DecodeFrameV5([3][4]byte{
-		sectorSizeData[0],
-		sectorSizeData[1],
-		sectorSizeData[2],
-	})
-	sectorSize := int(binary.LittleEndian.Uint64(sectorFrame[:]))
-	decodeData := make([]byte, 8*sectorSize)
-	for i := 1; i < sectorSize; i++ {
-		offset := i * 4
+	decodeData := make([]byte, 0)
+	for i := 0; i < len(sectorData[0][:]); i += 4 {
+		if i >= len(sectorData[0][:]) {
+			break
+		}
+
 		frameData := make([][4]byte, 3)
-		copy(frameData[0][:], sectorData[0][offset:4])
-		copy(frameData[1][:], sectorData[1][offset:4])
-		copy(frameData[2][:], sectorData[2][offset:4])
-		sectorFrame = DecodeFrameV5([3][4]byte{
+		copy(frameData[0][:], sectorData[0][i:i+4])
+		copy(frameData[1][:], sectorData[1][i:i+4])
+		copy(frameData[2][:], sectorData[2][i:i+4])
+		sectorFrame := DecodeFrameV5([3][4]byte{
 			frameData[0],
 			frameData[1],
 			frameData[2],
 		})
-		copy(decodeData[(i-1)*8:], sectorFrame[:])
+		decodeData = append(decodeData, sectorFrame[:]...)
 	}
 	return decodeData, nil
 }
