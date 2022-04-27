@@ -311,8 +311,9 @@ func (dfile *DistributedFileV5) Read(p []byte) (n int, err error) {
 			decodeFrame := DecodeFrameV5(frame)
 			decodeBuf.Write(decodeFrame[:])
 		}
-		bufw.Write(decodeBuf.Bytes())
-		readNum += len(decodeBuf.Bytes())
+		decodeData := decodeBuf.Bytes()
+		bufw.Write(decodeData)
+		readNum += len(decodeData)
 	}
 
 	remainSize := fileSize - dfile.decodedSize
@@ -327,7 +328,6 @@ func (dfile *DistributedFileV5) Read(p []byte) (n int, err error) {
 		return readNum, io.EOF
 	} else {
 		dfile.decodedSize += int64(readNum)
-		dfile.offset += int64(bufferSize)
 		return readNum, nil
 	}
 }

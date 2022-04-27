@@ -39,7 +39,7 @@ func TestDFileV5(t *testing.T) {
 
 func TestReadFile(t *testing.T) {
 	srcPath := "/mnt/c/test/"
-	destPath := "/mnt/c/test/decoded1.bmp"
+	destPath := "/mnt/c/test/decoded2.bmp"
 	dfile, err := OpenV5([3]string{
 		filepath.Join(srcPath, "slice.01"),
 		filepath.Join(srcPath, "slice.02"),
