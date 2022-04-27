@@ -34,6 +34,21 @@ func Startup() error {
 		}
 	}
 
+	if statInfo, err := os.Stat(config.RequireString(core.Arg_TmpDir)); err != nil {
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(config.RequireString(core.Arg_TmpDir), 0755)
+			if err != nil {
+				return tracing.Error(err)
+			}
+		} else {
+			return tracing.Error(err)
+		}
+	} else {
+		if !statInfo.IsDir() {
+			return fmt.Errorf("%s is not a directory", config.RequireString(core.Arg_TmpDir))
+		}
+	}
+
 	logging.Init()
 	dbPath, _ := config.GetString(core.Arg_DbPath)
 	if dbPath == "" {

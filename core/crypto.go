@@ -8,26 +8,9 @@ import (
 	"fmt"
 	"hash/crc64"
 	"math/rand"
-	"osssync/common/logging"
 
 	"github.com/tyler-smith/go-bip39"
 )
-
-func UseCryptoIfPossible(fileInfo FileInfo, mnemonic string, password string) error {
-	if mnemonic == "" && password == "" {
-		return nil
-	}
-	if cf, ok := fileInfo.(CryptoFileInfo); !ok {
-		logging.Warn(fmt.Sprintf("File type %s does not support encryption", fileInfo.FileType()), nil)
-		return nil
-	} else if mnemonic != "" {
-		return cf.UseEncryption(true, mnemonic)
-	} else if password != "" {
-		return cf.UseEncryption(false, password)
-	}
-
-	return nil
-}
 
 type MnemonicKey struct {
 	MasterKey string

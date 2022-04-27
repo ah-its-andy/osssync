@@ -25,6 +25,8 @@ func main() {
 	flag.StringVar(&args.DbPath, "db", "", "db path")
 	flag.StringVar(&args.Password, "password", "", "password")
 	flag.StringVar(&args.Mnemonic, "mnemonic", "", "mnemonic")
+	flag.BoolVar(&args.Zip, "zip", false, "compress files to zip")
+	flag.StringVar(&args.TmpDir, "tmpDir", "./.tmp", "tmp dir")
 	flag.Parse()
 
 	config.AttachValue(core.Arg_SourcePath, absFilePath(args.SourcePath))
@@ -36,8 +38,10 @@ func main() {
 	config.AttachValue(core.Arg_FullIndex, args.FullIndex)
 	config.AttachValue(core.Arg_ChunkSizeMb, args.ChunkSizeMb)
 	config.AttachValue(core.Arg_DbPath, absFilePath(args.DbPath))
+	config.AttachValue(core.Arg_Zip, args.Zip)
 	config.AttachValue(core.Arg_Password, args.Password)
 	config.AttachValue(core.Arg_Mnemonic, strings.TrimPrefix(strings.TrimSuffix(args.Mnemonic, "'"), "'"))
+	config.AttachValue(core.Arg_TmpDir, absFilePath(args.TmpDir))
 
 	if args.Operation != "generateKey" {
 		if config.GetStringOrDefault(core.Arg_SourcePath, "") == "" {
@@ -83,7 +87,8 @@ type Args struct {
 	Password string
 	Mnemonic string
 
-	Zip bool
+	Zip    bool
+	TmpDir string
 }
 
 func absFilePath(p string) string {

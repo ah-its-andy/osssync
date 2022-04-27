@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"osssync/common/config"
 	"osssync/common/tracing"
 	"strconv"
 	"strings"
@@ -246,7 +247,11 @@ func (fileInfo *AliOSSFileInfo) Writer() io.Writer {
 }
 func (fileInfo *AliOSSFileInfo) Flush() error {
 	if len(fileInfo.buffer.Bytes()) > 0 {
-		err := fileInfo.bucket.PutObject(fileInfo.objectName, bytes.NewReader(fileInfo.buffer.Bytes()), fileInfo.options...)
+		dstObjName := fileInfo.objectName
+		if config.GetValueOrDefault(Arg_Zip, false) {
+			dstObjName = JoinUri(fileInfo.objectName, ".zip")
+		}
+		err := fileInfo.bucket.PutObject(dstObjName, bytes.NewReader(fileInfo.buffer.Bytes()), fileInfo.options...)
 		if err != nil {
 			return tracing.Error(err)
 		}
@@ -278,8 +283,12 @@ func (fileInfo *AliOSSFileInfo) WalkChunk(reader io.Reader, chunkSize int64, fil
 	chunkReader := NewChunkReader(reader, chunkSize)
 	defer chunkReader.Close()
 
+	dstObjName := fileInfo.objectName
+	if config.GetValueOrDefault(Arg_Zip, false) {
+		dstObjName = JoinUri(fileInfo.objectName, ".zip")
+	}
 	// 步骤1：初始化一个分片上传事件，并指定存储类型为标准存储。
-	imur, err := fileInfo.bucket.InitiateMultipartUpload(fileInfo.objectName, fileInfo.options...)
+	imur, err := fileInfo.bucket.InitiateMultipartUpload(dstObjName, fileInfo.options...)
 	if err != nil {
 		return tracing.Error(err)
 	}

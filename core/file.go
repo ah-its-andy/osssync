@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"osssync/common/config"
 	"osssync/common/tracing"
 	"strconv"
 	"strings"
@@ -170,8 +171,18 @@ func (fileInfo *PhysicalFileInfo) Exists() (bool, error) {
 }
 
 func (fileInfo *PhysicalFileInfo) WalkChunk(reader io.Reader, chunkSize int64, fileSize int64, writer FileChunkWriter) error {
+	dstObjName := fileInfo.f.Name()
+	if config.GetValueOrDefault(Arg_Zip, false) && !strings.HasSuffix(dstObjName, ".zip") {
+		dstObjName = JoinUri(fileInfo.f.Name(), ".zip")
+	}
+	if fileInfo.f.Name() != dstObjName {
+		fileInfo.f.Close()
+		if _, err := os.Stat(dstObjName); err == nil {
+			os.Remove(dstObjName)
+		}
+		fileInfo.f, _ = os.Create(dstObjName)
+	}
 	chunkNum := int64(math.Ceil(float64(fileSize) / float64(chunkSize)))
-
 	chunkReader := NewChunkReader(reader, chunkSize)
 	defer chunkReader.Close()
 	var chunkN = (int64)(chunkNum)
@@ -200,6 +211,17 @@ func (fileInfo *PhysicalFileInfo) WalkChunk(reader io.Reader, chunkSize int64, f
 }
 
 func (fileInfo *PhysicalFileInfo) Writer() io.Writer {
+	dstObjName := fileInfo.f.Name()
+	if config.GetValueOrDefault(Arg_Zip, false) && !strings.HasSuffix(dstObjName, ".zip") {
+		dstObjName = JoinUri(fileInfo.f.Name(), ".zip")
+	}
+	if fileInfo.f.Name() != dstObjName {
+		fileInfo.f.Close()
+		if _, err := os.Stat(dstObjName); err == nil {
+			os.Remove(dstObjName)
+		}
+		fileInfo.f, _ = os.Create(dstObjName)
+	}
 	return fileInfo.f
 }
 func (fileInfo *PhysicalFileInfo) Flush() error {

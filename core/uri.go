@@ -17,7 +17,14 @@ func JoinUri(a ...string) string {
 			parts[i] = p
 		}
 	}
-	return strings.Join(parts, "/")
+	b := strings.Builder{}
+	for i, part := range parts {
+		if i > 0 && !strings.HasPrefix(part, ".") {
+			b.WriteString("/")
+		}
+		b.WriteString(part)
+	}
+	return b.String()
 }
 
 func ResolveUriType(uri string) FileType {

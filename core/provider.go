@@ -40,11 +40,6 @@ func GetFile(dirPath string, relativePath string) (fileInfo FileInfo, err error)
 	if err != nil {
 		return nil, tracing.Error(err)
 	}
-	err = UseCryptoIfPossible(fileInfo, config.GetStringOrDefault(Arg_Mnemonic, ""),
-		config.GetStringOrDefault(Arg_Password, ""))
-	if err != nil {
-		return nil, tracing.Error(err)
-	}
 	return fileInfo, nil
 }
 

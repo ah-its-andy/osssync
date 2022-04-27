@@ -29,8 +29,10 @@ const (
 	Arg_FullIndex       = "OSY_FULL_INDEX"
 	Arg_ChunkSizeMb     = "OSY_CHUNK_SIZE_MB"
 	Arg_DbPath          = "OSY_DB_PATH"
+	Arg_Zip             = "OSY_ZIP"
 	Arg_Password        = "OSY_PASSWORD"
 	Arg_Mnemonic        = "OSY_MNEMONIC"
+	Arg_TmpDir          = "OSY_TMP_DIR"
 )
 
 var ErrCRC64NotMatch error = fmt.Errorf("crc64 not match")
