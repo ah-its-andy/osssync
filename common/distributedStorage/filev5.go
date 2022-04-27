@@ -363,10 +363,14 @@ func (dfile *DistributedFileV5) RebuildBlk() error {
 		}
 		writeBuf := make([]byte, n)
 		frames := GetFrames(buf)
+		//     0 1 2 3
+		// 0 : 0 1 2 3            0*4+0 = 0
+		// 1 : 4 5 6 7            1*4+0 = 4
+		// 2 : 8 9 10 11		  2*4+0 = 8
 		for i, frame := range frames {
 			for j := 0; j < 4; j++ {
 				rebuildField := RebuildField(miss, j, frame)
-				writeBuf[i*j] = rebuildField
+				writeBuf[i*4+j] = rebuildField
 			}
 		}
 		dfile.rebuildBlk.WriteAt(writeBuf, writeOffset)

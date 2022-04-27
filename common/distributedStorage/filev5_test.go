@@ -8,7 +8,7 @@ import (
 )
 
 func TestDFileV5(t *testing.T) {
-	srcFilePath := "/mnt/c/test/10.txt"
+	srcFilePath := "/mnt/c/test/1.bmp"
 	destDir := "/mnt/c/test/"
 	srcFile, err := os.Open(srcFilePath)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestDFileV5(t *testing.T) {
 
 func TestReadFile(t *testing.T) {
 	srcPath := "/mnt/c/test/"
-	destPath := "/mnt/c/test/decoded1.txt"
+	destPath := "/mnt/c/test/decoded1.bmp"
 	dfile, err := OpenV5([3]string{
 		filepath.Join(srcPath, "slice.01"),
 		filepath.Join(srcPath, "slice.02"),
