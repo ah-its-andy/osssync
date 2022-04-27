@@ -67,11 +67,8 @@ func TestRebuildByteWithXor(t *testing.T) {
 	b1 := byte(200)
 	b2 := byte(55)
 	xor := b1 ^ b2
-	rebuild, _ := RebuildByte(xor, b2, true)
-	if rebuild == b2 {
+	if b2^xor == b1 {
 		t.Log("OK")
-	} else {
-		t.Error("FAIL")
 	}
 }
 

@@ -62,29 +62,13 @@ func RebuildField(blkIdx int, lineIdx int, frame [3][4]byte) byte {
 		if pos[0] == xorBlkIdx {
 			anotherBlk = pos[1]
 		}
-		ret, ok := RebuildByte(xor, frame[anotherBlk][lineIdx], anotherBlk < blkIdx)
-		if !ok {
-			panic(fmt.Sprintf("rebuild field failed, blkIdx: %d, lineIdx: %d", blkIdx, lineIdx))
-		}
+		ret := SumXor(frame[anotherBlk][lineIdx], xor, true)
+
 		return ret
 	}
 }
 
-func RebuildByte(xor, another byte, leftToRight bool) (byte, bool) {
-	var result byte
-	for {
-		if xor == SumXor(another, result, leftToRight) {
-			return result, true
-		} else {
-			if result == 255 {
-				break
-			}
-			result++
-		}
-	}
-	return 0, false
-}
-
+// compute direction of xor will have different result, because byte type will not always be 8 bit with zero-fill
 func SumXor(a, b byte, leftToRight bool) byte {
 	if leftToRight {
 		return a ^ b
@@ -167,4 +151,16 @@ func GetFrames(sectorData [][]byte) [][3][4]byte {
 		frames = append(frames, frame)
 	}
 	return frames
+}
+
+func Bytes2Bits(data []byte) []int {
+	dst := make([]int, 0)
+	for _, v := range data {
+		for i := 0; i < 8; i++ {
+			move := uint(7 - i)
+			dst = append(dst, int((v>>move)&1))
+		}
+	}
+	fmt.Println(len(dst))
+	return dst
 }
