@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/alexmullins/zip v0.0.0-20180717182244-4affb64b04d0
 	github.com/aliyun/aliyun-oss-go-sdk v2.2.2+incompatible
+	github.com/chentaihan/aesCbc v0.0.0-20201028024852-1c4d1700b583
 	github.com/google/uuid v1.3.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/logoove/sqlite v1.15.3
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1577 // indirect
 	github.com/baiyubin/aliyun-sts-go-sdk v0.0.0-20180326062324-cfa1a18b161f // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.4 // indirect

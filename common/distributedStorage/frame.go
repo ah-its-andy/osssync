@@ -1,5 +1,10 @@
 package distributedstorage
 
+import (
+	"fmt"
+	"math"
+)
+
 func CreateFrameV5(data [8]byte) [3][4]byte {
 	ret := make([][4]byte, 3)
 	ret[0] = [4]byte{data[0], data[2] ^ data[3], data[5], data[6]}
@@ -9,9 +14,6 @@ func CreateFrameV5(data [8]byte) [3][4]byte {
 }
 
 func DecodeFrameV5(frame [3][4]byte) [8]byte {
-	if x, y, ok := CheckFrameV5(frame); !ok {
-		return DecodeFrameV5(RebuildFrameV5(x, y, frame))
-	}
 	return [8]byte{
 		frame[0][0], frame[1][0],
 		frame[1][1], frame[2][1],
@@ -36,28 +38,55 @@ func CheckFrameV5(frame [3][4]byte) (x, y int8, ok bool) {
 	return 0, 0, true
 }
 
-func RebuildFrameV5(x, y int8, frame [3][4]byte) [3][4]byte {
-	var pos [2]int8
-	if x == 0 {
-		pos = [2]int8{1, 2}
-	} else if x == 1 {
-		pos = [2]int8{0, 2}
-	} else {
-		pos = [2]int8{0, 1}
-	}
-	// rebuild block
-	b, ok := RebuildByte(frame[x][y], frame[pos[0]][y], true)
+func RebuildFirstBlock(secBlk [4]byte, thirdBlk [4]byte) [4]byte {
+	blk := [4]byte{}
+	var ok bool
+	blk[0], ok = RebuildByte(thirdBlk[0], secBlk[0], true)
 	if !ok {
-		b, ok = RebuildByte(frame[x][y], frame[pos[1]][y], false)
-		if !ok {
-			panic("rebuild framev5 failed")
-		} else {
-			frame[x+2][y] = b
-		}
-	} else {
-		frame[x+1][y] = b
+		panic("rebuild first block failed")
 	}
-	return frame
+	blk[1] = secBlk[1] ^ thirdBlk[1]
+	blk[2], ok = RebuildByte(secBlk[2], thirdBlk[2], true)
+	if !ok {
+		panic("rebuild third block failed")
+	}
+	blk[3], ok = RebuildByte(thirdBlk[3], secBlk[3], true)
+	if !ok {
+		panic("rebuild fourth block failed")
+	}
+	return blk
+}
+
+func RebuildField(blkIdx int, lineIdx int, frame [3][4]byte) byte {
+	var pos [2]int
+	if blkIdx == 0 {
+		pos = [2]int{1, 2}
+	} else if blkIdx == 1 {
+		pos = [2]int{0, 2}
+	} else {
+		pos = [2]int{0, 1}
+	}
+	xorBlkIdx := lineIdx
+	if lineIdx == 0 || lineIdx == 3 {
+		xorBlkIdx = 2
+	}
+	if xorBlkIdx == blkIdx {
+		// this field is xor
+		ret := frame[pos[0]][lineIdx] ^ frame[pos[1]][lineIdx]
+		return ret
+	} else {
+		// this field is data, rebuild it with xor
+		xor := frame[xorBlkIdx][lineIdx]
+		anotherBlk := pos[0]
+		if pos[0] == xorBlkIdx {
+			anotherBlk = pos[1]
+		}
+		ret, ok := RebuildByte(xor, frame[anotherBlk][lineIdx], anotherBlk < blkIdx)
+		if !ok {
+			panic(fmt.Sprintf("rebuild field failed, blkIdx: %d, lineIdx: %d", blkIdx, lineIdx))
+		}
+		return ret
+	}
 }
 
 func RebuildByte(xor, another byte, leftToRight bool) (byte, bool) {
@@ -84,17 +113,19 @@ func SumXor(a, b byte, leftToRight bool) byte {
 }
 
 func CheckXor(xor byte, left byte, right byte) bool {
-	return xor == (left ^ right)
+	sum := SumXor(left, right, true)
+	return xor == sum
 }
 
-func CreateSectorV5(data []byte) ([3][]byte, error) {
+func CreateSectorV5(data []byte) ([][3][4]byte, error) {
 	sectorSize := len(data)
-	alignSize := sectorSize
-	if sectorSize%8 != 0 {
-		alignSize += 8 - sectorSize%8
-	}
+	// alignSize := sectorSize
+	// if sectorSize%8 != 0 {
+	// 	alignSize += 8 - sectorSize%8
+	// }
 
-	frames := make([][3][4]byte, alignSize/8)
+	frameSize := int(math.Ceil(float64(sectorSize) / 8))
+	frames := make([][3][4]byte, frameSize)
 
 	for i := 0; i < len(data); i += 8 {
 		if i+7 > len(data) {
@@ -121,40 +152,38 @@ func CreateSectorV5(data []byte) ([3][]byte, error) {
 				data[i+6], data[i+7]})
 		}
 	}
-	return FlatFramesV5(frames), nil
+	return frames, nil
 }
 
-func FlatFramesV5(frames [][3][4]byte) [3][]byte {
-	ret := make([][]byte, 3)
-	ret[0] = make([]byte, len(frames)*4)
-	ret[1] = make([]byte, len(frames)*4)
-	ret[2] = make([]byte, len(frames)*4)
+// func FlatFramesV5(frames [][3][4]byte) [3][]byte {
+// 	ret := make([][]byte, 3)
+// 	ret[0] = make([]byte, len(frames)*4)
+// 	ret[1] = make([]byte, len(frames)*4)
+// 	ret[2] = make([]byte, len(frames)*4)
 
-	for i, frame := range frames {
-		copy(ret[0][i*4:i*4+4], frame[0][:])
-		copy(ret[1][i*4:i*4+4], frame[1][:])
-		copy(ret[2][i*4:i*4+4], frame[2][:])
-	}
-	return [3][]byte{ret[0], ret[1], ret[2]}
-}
+// 	for i, frame := range frames {
+// 		copy(ret[0][i*4:i*4+4], frame[0][:])
+// 		copy(ret[1][i*4:i*4+4], frame[1][:])
+// 		copy(ret[2][i*4:i*4+4], frame[2][:])
+// 	}
+// 	return [3][]byte{ret[0], ret[1], ret[2]}
+// }
 
-func DecodeSectorV5(sectorData [][]byte) ([]byte, error) {
-	decodeData := make([]byte, 0)
+func GetFrames(sectorData [][]byte) [][3][4]byte {
+	var frames [][3][4]byte
 	for i := 0; i < len(sectorData[0][:]); i += 4 {
-		if i >= len(sectorData[0][:]) {
-			break
-		}
-
 		frameData := make([][4]byte, 3)
 		copy(frameData[0][:], sectorData[0][i:i+4])
 		copy(frameData[1][:], sectorData[1][i:i+4])
 		copy(frameData[2][:], sectorData[2][i:i+4])
-		sectorFrame := DecodeFrameV5([3][4]byte{
+
+		frame := [3][4]byte{
 			frameData[0],
 			frameData[1],
 			frameData[2],
-		})
-		decodeData = append(decodeData, sectorFrame[:]...)
+		}
+
+		frames = append(frames, frame)
 	}
-	return decodeData, nil
+	return frames
 }
