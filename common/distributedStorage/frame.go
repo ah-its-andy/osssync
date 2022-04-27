@@ -38,25 +38,6 @@ func CheckFrameV5(frame [3][4]byte) (x, y int8, ok bool) {
 	return 0, 0, true
 }
 
-func RebuildFirstBlock(secBlk [4]byte, thirdBlk [4]byte) [4]byte {
-	blk := [4]byte{}
-	var ok bool
-	blk[0], ok = RebuildByte(thirdBlk[0], secBlk[0], true)
-	if !ok {
-		panic("rebuild first block failed")
-	}
-	blk[1] = secBlk[1] ^ thirdBlk[1]
-	blk[2], ok = RebuildByte(secBlk[2], thirdBlk[2], true)
-	if !ok {
-		panic("rebuild third block failed")
-	}
-	blk[3], ok = RebuildByte(thirdBlk[3], secBlk[3], true)
-	if !ok {
-		panic("rebuild fourth block failed")
-	}
-	return blk
-}
-
 func RebuildField(blkIdx int, lineIdx int, frame [3][4]byte) byte {
 	var pos [2]int
 	if blkIdx == 0 {
